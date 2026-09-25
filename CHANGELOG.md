@@ -1,52 +1,56 @@
-# История изменений
+# Changelog
 
-## 0.3.0 — 25 сентября 2026
+## 0.3.0 — 25 September 2026
 
-### Добавлено
+### Added
 
-- **Украинская озвучка.** Голос Piper `uk_UA-ukrainian_tts-medium`, диктор по умолчанию `mykyta`. Язык озвучки выбирается в настройках панели: «Переводить на».
-- **Перевод с немецкого.** Работает и по субтитрам, и через распознавание речи.
-- **Интерфейс на четырёх языках:** English, Español, Русский, Українська. По умолчанию язык браузера, в заголовке панели есть меню с глобусом для выбора. Описание расширения переведено через `_locales`.
-- **Коды ошибок.** Каждая ошибка приходит из приложения с кодом и показывается понятным текстом на языке интерфейса. Английская подробность уходит в журнал.
-- **Сборка по голосу на язык** и миграция `bin/config.json`: ключ `voice` заменён на `voices.ru` и `voices.uk`.
-- `make preview`, а также параметры `INTO` и `FROM` для `make e2e`.
+- **Ukrainian voice-over.** Piper voice `uk_UA-ukrainian_tts-medium`, speaker `mykyta` by default. The dubbing language is chosen in the panel's settings under "Translate into".
+- **Translation from German**, both from subtitles and through speech recognition.
+- **Four interface languages:** English, Español, Русский, Українська. The browser's language by default, with a globe menu in the panel header to choose. The extension's description is translated through `_locales`.
+- **Error codes.** Every error from the local app carries a code and is shown as a clear message in the interface language; the English detail goes to the journal.
+- **One voice per language**, and a migration of `bin/config.json`: the `voice` key is replaced by `voices.ru` and `voices.uk`.
+- `make preview`, plus `INTO` and `FROM` for `make e2e`.
 
-### Исправлено
+### Removed
 
-- **Субтитры YouTube не использовались ни на одном ролике.** Расширение молча уходило в распознавание речи: YouTube отвечает пустым телом на запрос субтитров без токена `pot`. Теперь субтитры загружаются через сам плеер, у которого токен есть. При автодубляже выбирается дорожка исходной речи, при рекламе расширение ждёт её конца.
-- **Распознавание роликов без субтитров падало с `HTTP Error 403`.** YouTube теперь требует выполнять свой JavaScript для получения ссылки на звук. Deno ставится в `.venv` вместе с `yt-dlp[default]`.
-- **В панель выводился многострочный лог yt-dlp.** Теперь показывается одна причина.
-- **Длинные фразы пропускались с «Unable to decode audio data».** Звук, пришедший частями, склеивался после первой же части.
-- **Украинский голос глотал заглавные буквы, цифры и латиницу.** Текст теперь нормализуется перед озвучкой.
-- **Перевод на неверный язык.** Если модель ответила по-русски вместо украинского (или наоборот), перевод повторяется.
-- **Отмена распознавания** не останавливала запущенные yt-dlp и ffmpeg.
-- **Панель у верхнего края раскрывала разделы за пределы окна**, и её больше нельзя было ни перетащить, ни свернуть. Теперь:
-  - панель привязывается к ближайшему краю окна и растёт от него;
-  - она никогда не выше окна: разделы прокручиваются внутри;
-  - положение пересчитывается при любом изменении размера.
+- The Vosk TTS and macOS system voice (Milena) engines: Piper voices only. `make install` drops their old settings from `bin/config.json`.
 
-## 0.2.0 — 25 сентября 2026
+### Fixed
 
-### Добавлено
+- **YouTube subtitles were never used.** The extension silently fell back to speech recognition: YouTube answers a subtitle request without the `pot` token with an empty body. Subtitles are now loaded through the player itself, which has the token. For auto-dubbed videos the original-speech track is chosen, and during an ad the extension waits for it to end.
+- **Recognition of videos without subtitles failed with `HTTP Error 403`.** YouTube now requires running its JavaScript to get the audio URL. Deno is installed into `.venv` together with `yt-dlp[default]`.
+- **The panel showed yt-dlp's multi-line log.** It now shows a single cause.
+- **Long phrases were skipped with "Unable to decode audio data".** Chunked audio was joined after its first part.
+- **The Ukrainian voice swallowed capitals, digits and Latin words.** Text is now normalized before voicing.
+- **Translation into the wrong language.** If the model answers in Russian instead of Ukrainian (or the other way round), the translation is retried.
+- **Cancelling recognition** left yt-dlp and ffmpeg running.
+- **Near the top edge the panel opened its sections off-screen**, and could then be neither dragged nor collapsed. Now:
+  - the panel is pinned to the nearest window edge and grows away from it;
+  - it is never taller than the window: the sections scroll inside;
+  - its position is refitted on every size change.
 
-- **Перевод без Ollama.** Qwen3-4B работает через MLX прямо в локальном приложении. Ollama остаётся необязательной (`translator: ollama`).
-- **Новая панель.** Кнопки «Включить перевод», «Пауза» и «Стоп». Строка статуса, полоска запаса озвучки, текущая фраза. Разделы «Настройки» и «Диагностика» свёртываются.
-- **Управление панелью.** Панель сворачивается в кнопку, перетаскивается и запоминает положение. Значок расширения прячет и возвращает её.
-- **Иконка** с рычащим львом.
-- **Голос по умолчанию** — Piper `ru_RU-dmitri-medium`.
-- **Распознавание речи для роликов без субтитров.** Участки по 3 минуты, следующий готовится заранее.
-- **Журнал сеанса** в «Диагностике».
-- **Установка.** `make setup` и `make install`, фиксированный ID расширения.
+## 0.2.0 — 25 September 2026
 
-### Исправлено
+### Added
 
-- Перевод останавливался после нескольких фраз: браузер запускал приложение без `ffmpeg` в `PATH`.
-- После переустановки macOS убивал приложение при запуске.
-- Перевод мог молча замереть из-за потерянного ответа или зависшего модуля.
-- «Стоп» во время поиска субтитров не срабатывал.
-- Реклама YouTube сбивала озвучку.
-- Кеш скачанного звука рос без ограничения.
+- **Translation without Ollama.** Qwen3-4B runs through MLX inside the local app. Ollama stays optional (`translator: ollama`).
+- **New panel.** "Turn on translation", "Pause" and "Stop" buttons, a status line, a voice-over buffer bar and the current phrase. "Settings" and "Diagnostics" collapse.
+- **Panel handling.** The panel collapses into a button, can be dragged and remembers its position. The extension's toolbar icon hides and shows it.
+- **Icon** with a roaring lion.
+- **Default voice:** Piper `ru_RU-dmitri-medium`.
+- **Speech recognition for videos without subtitles**, in 3-minute sections, with the next one prepared ahead.
+- **Session journal** under "Diagnostics".
+- **Installation** with `make setup` and `make install`, and a fixed extension ID.
+
+### Fixed
+
+- Translation stopped after a few phrases: the browser started the app without `ffmpeg` on `PATH`.
+- After reinstalling, macOS killed the app on launch.
+- Translation could silently stall on a lost answer or a hung worker.
+- "Stop" was ignored while subtitles were being looked up.
+- YouTube ads threw the voice-over off.
+- The downloaded-audio cache grew without limit.
 
 ## 0.1.0
 
-Первая рабочая версия: русская озвучка по субтитрам через Ollama и Piper.
+First working version: Russian voice-over from subtitles through Ollama and Piper.

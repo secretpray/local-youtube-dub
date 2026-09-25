@@ -2,97 +2,96 @@
 
 <h1 align="center">YouTube Translate</h1>
 
-<p align="center">Русская и украинская озвучка роликов YouTube на английском, испанском и немецком.<br>Распознавание, перевод и голос работают на вашем Mac, без облака и подписок.</p>
+<p align="center">Russian and Ukrainian voice-over for YouTube videos in English, Spanish and German.<br>Recognition, translation and voice run on your Mac: no cloud, no subscription.</p>
 
 ---
 
-Ролик смотрится в обычном плеере YouTube: оригинал приглушается, поверх звучит перевод. Если у ролика есть субтитры, берутся они. Если нет, речь распознаётся по звуку прямо на компьютере.
+The video plays in the regular YouTube player: the original is turned down and the translation is voiced over it. If the video has subtitles, they are used. If not, the speech is recognized from the audio right on your computer.
 
-| | Языки |
+| | Languages |
 |---|---|
-| Язык видео | английский, испанский, немецкий (определяется автоматически) |
-| Озвучка | русский, украинский |
-| Интерфейс | English, Español, Русский, Українська (по языку браузера или на выбор) |
+| Video | English, Spanish, German (detected automatically) |
+| Voice-over | Russian, Ukrainian |
+| Interface | English, Español, Русский, Українська (the browser's language, or your choice) |
 
-## Быстрый старт
+## Quick start
 
-Нужен Mac на Apple Silicon и около 4 ГБ свободного места.
+You need an Apple Silicon Mac and about 4 GB of free space.
 
 ```sh
 brew install rust ffmpeg python@3.13
-make setup     # окружение, модели и голоса; всё хранится внутри этой папки
-make install   # собирает приложение и подключает его к браузерам
+make setup     # environment, models and voices; everything stays inside this folder
+make install   # builds the local app and connects it to your browsers
 ```
 
-Затем в Chrome (или Edge, Brave):
+Then in Chrome (or Edge, Brave):
 
-1. Откройте `chrome://extensions` и включите «Режим разработчика».
-2. Нажмите «Загрузить распакованное расширение» и выберите папку `extension`.
-3. Перезапустите браузер.
+1. Open `chrome://extensions` and turn on Developer mode.
+2. Click "Load unpacked" and select the `extension` folder.
+3. Restart the browser.
 
-## Как пользоваться
+## Using it
 
-Откройте ролик на YouTube. В правом нижнем углу появится панель **YouTube Translate**.
+Open a YouTube video. The **YouTube Translate** panel appears in the bottom-right corner.
 
-| Действие | Как |
+| To | Do |
 |---|---|
-| Включить перевод | кнопка «Включить перевод». Видео подождёт, пока готовятся первые фразы |
-| Послушать оригинал | «Пауза»: голос замолкает, видео идёт дальше. «Продолжить» возвращает перевод |
-| Выключить | «Стоп» |
-| Язык озвучки | «Настройки» → «Переводить на»: Русский или Українська |
-| Язык видео | «Настройки» → «Язык видео», если автоматика ошиблась |
-| Язык интерфейса | глобус в заголовке панели |
-| Убрать с глаз | «—» сворачивает панель в кнопку со львом; «×» выключает перевод и прячет панель |
-| Вернуть спрятанную панель | значок расширения на панели браузера |
-| Передвинуть | тащите за заголовок или за свёрнутую кнопку; двойной щелчок по заголовку возвращает панель в угол |
+| Start translating | "Turn on translation". The video waits while the first phrases are prepared |
+| Hear the original | "Pause": the voice stops and the video keeps playing. "Resume" brings the translation back |
+| Stop | "Stop" |
+| Choose the voice-over language | Settings → "Translate into": Русский or Українська |
+| Correct the video language | Settings → "Video language", if auto-detection got it wrong |
+| Change the interface language | the globe in the panel header |
+| Get the panel out of the way | "—" collapses it into a lion button; "×" stops translating and hides it |
+| Bring a hidden panel back | the extension's icon in the browser toolbar |
+| Move the panel | drag the header or the collapsed button; double-click the header to send it back to the corner |
 
-Языки видео и озвучки меняются, пока перевод выключен. По умолчанию озвучка украинская, если интерфейс украинский, и русская во всех остальных случаях.
+Languages can be changed while translation is off. By default the voice-over is Ukrainian if the interface is Ukrainian, and Russian otherwise.
 
-## Если что-то не так
+## Troubleshooting
 
-Все сообщения показываются на языке интерфейса. Подробности всегда есть в «Диагностика» → «Скопировать журнал».
+Every message is shown in the interface language, and details are always under Diagnostics → Copy log.
 
-| Сообщение | Что делать |
+| Message | What to do |
 |---|---|
-| «Локальное приложение не установлено» | выполните `make install` и перезапустите браузер |
-| «… не скачана» / «Нет голоса …» / «yt-dlp нужен deno …» | выполните `make setup` |
-| «YouTube отказал в скачивании (проверка на бота)» | подождите и попробуйте позже; с субтитрами это не случается |
-| «Плеер YouTube показал ошибку» | обновите страницу и включите перевод снова |
-| Долго «Субтитров нет — распознаём речь…» | при первом запуске на ролике скачивается звук, это время зависит от длины ролика |
-| Фразы пропускаются | откройте «Диагностика»: там причина последнего пропуска |
-| Перенесли папку проекта | `make install`, затем в `chrome://extensions` удалите расширение и загрузите его из нового места |
+| "The local app is not installed" | run `make install` and restart the browser |
+| "… is not downloaded" / "No voice for …" / "yt-dlp needs deno …" | run `make setup` |
+| "YouTube refused the download (bot check)" | wait and try again later; videos with subtitles are not affected |
+| "The YouTube player showed an error" | reload the page and turn translation on again |
+| "No subtitles — recognizing speech…" takes long | the first run on a video downloads its audio; the time depends on the video's length |
+| Phrases are skipped | open Diagnostics: it shows the reason for the last skip |
+| You moved the project folder | `make install`, then remove the extension in `chrome://extensions` and load it again from the new location |
 
-## Настройки приложения
+## Local app settings
 
-`bin/config.json` создаётся при `make install`. Пути в нём указаны относительно папки проекта.
+`bin/config.json` is written by `make install`. Paths in it are relative to the project folder.
 
-| Ключ | По умолчанию | Назначение |
+| Key | Default | Purpose |
 |---|---|---|
-| `translator` | `mlx` | `mlx` — встроенный перевод; `ollama` — через запущенный Ollama |
-| `mlx_model` | `mlx-community/Qwen3-4B-Instruct-2507-4bit` | модель перевода |
-| `ollama_model`, `ollama_url` | `qwen3:4b-instruct`, `http://127.0.0.1:11434/api/generate` | только при `translator: ollama` |
-| `voices.ru`, `voices.uk` | `voices/ru_RU-dmitri-medium.onnx`, `voices/uk_UA-ukrainian_tts-medium.onnx` | голоса Piper для каждого языка озвучки |
-| `voice_speakers.uk` | `mykyta` | диктор украинской модели: `mykyta`, `lada` или `tetiana` |
-| `voice_backend` | `piper` | движок русского голоса: `piper`, `vosk` или `macos-say` |
+| `translator` | `mlx` | `mlx` for the built-in translation; `ollama` to use a running Ollama |
+| `mlx_model` | `mlx-community/Qwen3-4B-Instruct-2507-4bit` | translation model |
+| `ollama_model`, `ollama_url` | `qwen3:4b-instruct`, `http://127.0.0.1:11434/api/generate` | only with `translator: ollama` |
+| `voices.ru`, `voices.uk` | `voices/ru_RU-dmitri-medium.onnx`, `voices/uk_UA-ukrainian_tts-medium.onnx` | Piper voice for each voice-over language |
+| `voice_speakers.uk` | `mykyta` | speaker of the Ukrainian model: `mykyta`, `lada` or `tetiana` |
 
-**Другой голос Piper.** Выполните `DUB_VOICE_NAMES="ru_RU-irina-medium" make setup`, затем укажите его в `voices.ru`.
+**Another Piper voice.** Run `DUB_VOICE_NAMES="ru_RU-irina-medium" make setup`, then point `voices.ru` at it.
 
-**Размер кеша звука.** Ограничивается переменной `DUB_AUDIO_CACHE_MB`, по умолчанию 1024 МБ.
+**Audio cache size.** Limited by `DUB_AUDIO_CACHE_MB`, 1024 MB by default.
 
-## Ограничения
+## Limitations
 
-- **Платформа.** Только macOS на Apple Silicon и браузеры на Chromium.
-- **Нагрузка.** Около 1,5 ГБ памяти во время перевода.
-- **Длина украинской речи.** Она часто длиннее оригинала, и тогда видео чуть притормаживает на границах фраз.
-- **Зависимость от YouTube.** Проект читает внутренние данные YouTube: если сервис их изменит, чтение субтитров или скачивание звука потребуется обновить.
+- **Platform.** macOS on Apple Silicon, Chromium-based browsers only.
+- **Load.** About 1.5 GB of memory while translating.
+- **Length of Ukrainian speech.** It often runs longer than the original, and then the video pauses briefly between phrases.
+- **Depends on YouTube.** The project reads YouTube's internal data; if YouTube changes it, reading subtitles or downloading audio will need an update.
 
-## Документация
+## Documentation
 
-- [Архитектура](docs/ARCHITECTURE.md): компоненты, протокол, коды ошибок, синхронизация голоса с видео, локализация, данные на диске.
-- [Разработка](docs/DEVELOPMENT.md): команды, тесты, отладка, как добавить строку, язык или код ошибки.
-- [Критическое ревью](docs/REVIEW.md): замеры, исправленное и открытые проблемы.
-- [История изменений](CHANGELOG.md).
+- [Architecture](docs/ARCHITECTURE.md): components, protocol, error codes, voice/video sync, localization, data on disk.
+- [Development](docs/DEVELOPMENT.md): commands, tests, debugging, adding a string, a language or an error code.
+- [Critical review](docs/REVIEW.md): measurements, what was fixed, open issues.
+- [Changelog](CHANGELOG.md).
 
-## Лицензии моделей
+## Model licenses
 
-Модели и голоса скачиваются при установке и в репозиторий не входят: Qwen3 (Apache 2.0), Whisper (MIT), голоса Piper (у каждого своя лицензия, см. карточку голоса), Vosk TTS (Apache 2.0), Deno (MIT). Перед распространением сборки проверьте лицензии выбранных голосов.
+Models and voices are downloaded during setup and are not part of the repository: Qwen3 (Apache 2.0), Whisper (MIT), Piper voices (each has its own license, see the voice's model card), Deno (MIT). Check the licenses of the voices you use before distributing a build.

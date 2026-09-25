@@ -8,5 +8,3 @@ mlx-lm
 piper-tts
 # Spells out numbers for letter-based voices (the Ukrainian one).
 num2words
-
-# Optional voice: vosk-tts (voice_backend "vosk")

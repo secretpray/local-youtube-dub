@@ -1,6 +1,6 @@
 // End-to-end check in a throwaway Chrome for Testing profile: loads the
 // unpacked extension, registers the native host for that profile only, opens
-// a YouTube video, presses "Подготовить озвучку" and waits for dubbed phrases.
+// a YouTube video, turns translation on and waits for dubbed phrases.
 //
 //   node e2e/run.mjs VIDEO_ID [START_SECONDS] [PHRASES] [--seek=SECONDS] [--into=ru|uk] [--from=auto|en|es|de]
 import { chromium } from "playwright-core";
@@ -28,7 +28,7 @@ fs.mkdirSync(path.join(profile, "NativeMessagingHosts"), { recursive: true });
 fs.writeFileSync(path.join(profile, "NativeMessagingHosts", "org.local_youtube_dub.host.json"),
   JSON.stringify({
     name: "org.local_youtube_dub.host",
-    description: "Локальный перевод и озвучка YouTube (e2e)",
+    description: "YouTube Translate (e2e)",
     path: path.join(project, "bin", "local-youtube-dub-host"),
     type: "stdio",
     allowed_origins: [`chrome-extension://${extensionId}/`],
@@ -108,7 +108,7 @@ while (Date.now() - started < 15 * 60_000) {
     firstPlayAt = Date.now();
     log(`first phrase after ${((firstPlayAt - started) / 1000).toFixed(1)} s`);
   }
-  if (/Не удалось|потеряна|недоступн|не найден|ошибк|не скачана/i.test(state.status || "")) {
+  if (state.tone === "error" || /^error\./.test(state.statusKey || "")) {
     log("FAILED:", state.status);
     break;
   }

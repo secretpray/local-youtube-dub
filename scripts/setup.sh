@@ -8,17 +8,17 @@ PROJECT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$PROJECT_DIR"
 
 if [ "$(uname -s)-$(uname -m)" != "Darwin-arm64" ]; then
-  echo "Нужен Mac на Apple Silicon: перевод и распознавание работают через MLX." >&2
+  echo "An Apple Silicon Mac is required: translation and recognition run on MLX." >&2
   exit 2
 fi
 for tool in cargo ffmpeg; do
-  command -v "$tool" >/dev/null || { echo "Не найден $tool (brew install rust ffmpeg)" >&2; exit 2; }
+  command -v "$tool" >/dev/null || { echo "$tool not found (brew install rust ffmpeg)" >&2; exit 2; }
 done
 PYTHON=""
 for candidate in python3.13 python3.12 python3.11; do
   if command -v "$candidate" >/dev/null; then PYTHON=$candidate; break; fi
 done
-[ -n "$PYTHON" ] || { echo "Нужен Python 3.11–3.13 (brew install python@3.13)" >&2; exit 2; }
+[ -n "$PYTHON" ] || { echo "Python 3.11–3.13 is required (brew install python@3.13)" >&2; exit 2; }
 
 [ -x .venv/bin/python ] || "$PYTHON" -m venv .venv
 .venv/bin/python -m pip install --quiet --upgrade pip
@@ -36,6 +36,6 @@ export HF_HOME="$PROJECT_DIR/cache/huggingface"
 .venv/bin/python - <<'PY'
 from huggingface_hub import snapshot_download
 for repo in ("mlx-community/Qwen3-4B-Instruct-2507-4bit", "mlx-community/whisper-small-mlx"):
-    print("Модель", repo, "->", snapshot_download(repo))
+    print("Model", repo, "->", snapshot_download(repo))
 PY
-echo "Готово. Теперь: make install"
+echo "Done. Next: make install"

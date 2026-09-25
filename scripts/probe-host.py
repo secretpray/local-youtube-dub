@@ -49,7 +49,7 @@ def main():
     def receive():
         header = host.stdout.read(4)
         if len(header) < 4:
-            sys.exit("Хост завершился без ответа")
+            sys.exit("The host exited without answering")
         return json.loads(host.stdout.read(struct.unpack("<I", header)[0]))
 
     source, into = option("--from", "en"), option("--into", "ru")
@@ -57,7 +57,7 @@ def main():
     started = time.time()
     send({"id": "status", "type": "status", "into": into})
     status = receive()
-    print(f"{time.time() - started:5.1f} с  status: {status.get('result') or status.get('error')}")
+    print(f"{time.time() - started:5.1f} s  status: {status.get('result') or status.get('error')}")
     if not status.get("ok"):
         sys.exit(1)
     for index, text in enumerate(phrases):
@@ -66,9 +66,9 @@ def main():
     for _ in phrases:
         answer = receive()
         result = answer.get("result") or {}
-        detail = (f"{result.get('translated')} ({result.get('duration', 0):.1f} с звука)"
-                  if answer.get("ok") else f"ошибка {answer.get('code')}: {answer.get('error')}")
-        print(f"{time.time() - started:5.1f} с  #{answer['id']}: {detail}")
+        detail = (f"{result.get('translated')} ({result.get('duration', 0):.1f} s of audio)"
+                  if answer.get("ok") else f"error {answer.get('code')}: {answer.get('error')}")
+        print(f"{time.time() - started:5.1f} s  #{answer['id']}: {detail}")
     host.stdin.close()
     host.wait()
 

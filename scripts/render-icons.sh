@@ -3,7 +3,7 @@
 # an amber rounded tile, so it reads on both light and dark browser toolbars.
 set -eu
 cd "$(dirname -- "$0")/../extension/icons"
-command -v rsvg-convert >/dev/null || { echo "Нужен rsvg-convert (brew install librsvg)" >&2; exit 2; }
+command -v rsvg-convert >/dev/null || { echo "rsvg-convert is required (brew install librsvg)" >&2; exit 2; }
 python3 - <<'PY'
 import re
 lion = open("lion.svg").read()
@@ -17,9 +17,11 @@ tile = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {side + 2 * pad:
 <g transform="translate({pad:.0f} {pad:.0f})">{inner}</g>
 </svg>
 '''
+# Written next to the icons for rsvg-convert, then removed: it is derived.
 open("lion-tile.svg", "w").write(tile)
 PY
 for size in 16 32 48 128; do
   rsvg-convert -w "$size" -h "$size" lion-tile.svg -o "lion-$size.png"
 done
-echo "Иконки обновлены"
+rm -f lion-tile.svg
+echo "Icons updated"

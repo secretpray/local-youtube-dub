@@ -592,10 +592,8 @@ fn kill_group(pid: u32) {
         .status();
 }
 
-/// Where a target language's voice lives. Russian may use another engine
-/// (`voice_backend`); Ukrainian is Piper only.
+/// Where a target language's Piper voice lives, and which of its speakers.
 struct VoiceSpec {
-    backend: String,
     path: PathBuf,
     speaker: String,
 }
@@ -605,14 +603,8 @@ fn voice_spec(target: &str) -> VoiceSpec {
         "uk" => ("voices/uk_UA-ukrainian_tts-medium.onnx", "mykyta"),
         _ => ("voices/ru_RU-dmitri-medium.onnx", ""),
     };
-    let backend = if target == "ru" {
-        setting("DUB_VOICE_BACKEND", "/voice_backend", "piper")
-    } else {
-        "piper".to_owned()
-    };
     let variable = format!("DUB_VOICE_{}", target.to_uppercase());
     VoiceSpec {
-        backend,
         path: path_setting(&variable, &format!("/voices/{target}"), default_path),
         speaker: setting("", &format!("/voice_speakers/{target}"), default_speaker),
     }
@@ -620,17 +612,10 @@ fn voice_spec(target: &str) -> VoiceSpec {
 
 fn start_voice(target: &str) -> Result<LineWorker, Failure> {
     let spec = voice_spec(target);
-    let path = spec.path.to_string_lossy().into_owned();
-    match spec.backend.as_str() {
-        "piper" => LineWorker::start("piper_worker.py", &[path, spec.speaker]),
-        "vosk" => LineWorker::start(
-            "vosk_worker.py",
-            &[path, setting("DUB_VOICE_SPEAKER", "/voice_speaker", "male_0")],
-        ),
-        "macos-say" => LineWorker::start("system_voice_worker.py", &[]),
-        other => Err(Failure::new("voice_missing", format!("unknown voice backend {other}"))
-            .with("target", target)),
-    }
+    LineWorker::start(
+        "piper_worker.py",
+        &[spec.path.to_string_lossy().into_owned(), spec.speaker],
+    )
 }
 
 fn synthesize(
@@ -885,15 +870,8 @@ fn preflight(target: &str) -> Result<Value, Failure> {
         }
     }
     let voice = voice_spec(target);
-    let present = match voice.backend.as_str() {
-        "piper" => {
-            voice.path.is_file()
-                && PathBuf::from(format!("{}.json", voice.path.display())).is_file()
-        }
-        "vosk" => voice.path.join("model.onnx").is_file(),
-        "macos-say" => true,
-        _ => false,
-    };
+    let present = voice.path.is_file()
+        && PathBuf::from(format!("{}.json", voice.path.display())).is_file();
     if !present {
         return Err(Failure::new("voice_missing", voice.path.display().to_string())
             .with("target", target));
