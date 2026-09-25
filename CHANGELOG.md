@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Linux support**, which also covers Intel Macs: translation through llama.cpp (the same Qwen3-4B as GGUF) and recognition through faster-whisper, both on the CPU. Verified on ARM (Ubuntu 26.04 in UTM); x86_64 uses the same packages. `setup.sh` picks the engines and packages by platform (`requirements-apple-silicon.txt`, `requirements-cpu.txt`), and `install-host.sh` (renamed from `install-host-macos.sh`) registers the host with Linux browsers and removes it with `--uninstall`.
+- On the CPU, llama.cpp uses two threads fewer than there are cores, leaving room for the browser to decode the video (`DUB_LLAMA_THREADS` overrides).
+- Python 3.14 is accepted.
+- A snap browser (Ubuntu's Chromium) is detected and reported: its sandbox cannot run the local app, so it is not registered either.
+- `make install` builds and configures the host even when no supported browser is installed.
+
+### Fixed
+
+- **Model downloads could stall forever** in `make setup` (the Hugging Face Xet backend on a Linux VM). Downloads now use plain HTTP.
+- **On Linux the host could take the browser down with it** when memory ran out: llama.cpp's weight repacking is turned off, and the translation model no longer loads while speech is being recognized.
+- `make test` failed to start its JavaScript tests on Node 22.
+
 ## 0.3.0 — 25 September 2026
 
 ### Added

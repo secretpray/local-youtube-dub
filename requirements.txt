@@ -1,10 +1,9 @@
-# Local speech recognition, translation and voice. Apple Silicon (MLX) only.
+# Shared by every platform. Engines per platform are in requirements-*.txt.
 # yt-dlp[default] brings yt-dlp-ejs, and deno is the JavaScript runtime it needs
 # to read YouTube's stream links; without it downloads fail with HTTP 403.
 yt-dlp[default]
 deno
-mlx-whisper
-mlx-lm
 piper-tts
+huggingface_hub
 # Spells out numbers for letter-based voices (the Ukrainian one).
 num2words

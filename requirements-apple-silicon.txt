@@ -1,0 +1,4 @@
+# Translation and recognition on Apple Silicon (MLX).
+-r requirements.txt
+mlx-lm
+mlx-whisper
