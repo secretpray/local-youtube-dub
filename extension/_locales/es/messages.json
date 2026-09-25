@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "YouTube Translate"
+  },
+  "extDescription": {
+    "message": "Doblaje al ruso y al ucraniano de vídeos de YouTube en inglés, español y alemán. El reconocimiento, la traducción y la voz funcionan localmente en tu Mac."
+  },
+  "actionTitle": {
+    "message": "YouTube Translate: mostrar u ocultar el panel"
+  }
+}

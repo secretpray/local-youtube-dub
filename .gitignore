@@ -1,0 +1,14 @@
+# Build output
+/target/
+/bin/
+
+# Local environment, models and caches (make setup recreates them)
+/.venv/
+/voices/
+/cache/
+**/__pycache__/
+
+# End-to-end tooling and local scratch (browser profile, screenshots, keys)
+/.e2e/
+/e2e/node_modules/
+.DS_Store

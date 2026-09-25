@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "YouTube Translate"
+  },
+  "extDescription": {
+    "message": "Російське та українське озвучення відео YouTube англійською, іспанською й німецькою. Розпізнавання, переклад і голос працюють локально на вашому Mac."
+  },
+  "actionTitle": {
+    "message": "YouTube Translate: показати або сховати панель"
+  }
+}

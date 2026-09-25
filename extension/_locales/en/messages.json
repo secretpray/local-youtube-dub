@@ -1,0 +1,11 @@
+{
+  "extName": {
+    "message": "YouTube Translate"
+  },
+  "extDescription": {
+    "message": "Russian and Ukrainian voice-over for YouTube videos in English, Spanish and German. Recognition, translation and voice run locally on your Mac."
+  },
+  "actionTitle": {
+    "message": "YouTube Translate: show or hide the panel"
+  }
+}

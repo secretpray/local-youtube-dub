@@ -1,0 +1,130 @@
+// End-to-end check in a throwaway Chrome for Testing profile: loads the
+// unpacked extension, registers the native host for that profile only, opens
+// a YouTube video, presses "Подготовить озвучку" and waits for dubbed phrases.
+//
+//   node e2e/run.mjs VIDEO_ID [START_SECONDS] [PHRASES] [--seek=SECONDS] [--into=ru|uk] [--from=auto|en|es|de]
+import { chromium } from "playwright-core";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
+
+const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const [videoId = "cMX-u9ltG5Q", startArg = "0", phrasesArg = "6"] =
+  process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+const flag = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?.split("=")[1];
+const seekArg = flag("seek");
+const wanted = Number(phrasesArg);
+const extension = path.join(project, "extension");
+const profile = path.join(project, ".e2e", "profile");
+const manifest = JSON.parse(fs.readFileSync(path.join(extension, "manifest.json"), "utf8"));
+const der = Buffer.from(manifest.key, "base64");
+const { createHash } = await import("node:crypto");
+const extensionId = [...createHash("sha256").update(der).digest("hex").slice(0, 32)]
+  .map((c) => String.fromCharCode(97 + parseInt(c, 16))).join("");
+
+// Chromium reads per-user native messaging manifests from <user-data-dir>.
+fs.mkdirSync(path.join(profile, "NativeMessagingHosts"), { recursive: true });
+fs.writeFileSync(path.join(profile, "NativeMessagingHosts", "org.local_youtube_dub.host.json"),
+  JSON.stringify({
+    name: "org.local_youtube_dub.host",
+    description: "Локальный перевод и озвучка YouTube (e2e)",
+    path: path.join(project, "bin", "local-youtube-dub-host"),
+    type: "stdio",
+    allowed_origins: [`chrome-extension://${extensionId}/`],
+  }, null, 2));
+
+const executable = process.env.E2E_CHROME || path.join(os.homedir(),
+  "Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing");
+const context = await chromium.launchPersistentContext(profile, {
+  executablePath: executable,
+  headless: false,
+  viewport: { width: 1280, height: 800 },
+  ignoreDefaultArgs: ["--mute-audio"],
+  args: [
+    `--disable-extensions-except=${extension}`,
+    `--load-extension=${extension}`,
+    "--autoplay-policy=no-user-gesture-required",
+    "--window-position=40,40",
+  ],
+});
+// Panel settings live in extension storage; set them before the page reads them.
+const serviceWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+await serviceWorker.evaluate((settings) => chrome.storage.local.set({ dubSettings: settings }),
+  { into: flag("into") || "ru", language: flag("from") || "auto" });
+const page = context.pages()[0] || await context.newPage();
+const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
+page.on("console", (message) => {
+  if (message.type() === "error") log("console:", message.text().slice(0, 200));
+});
+
+await page.goto(`https://www.youtube.com/watch?v=${videoId}&t=${startArg}s`, { waitUntil: "domcontentloaded" });
+for (const label of ["Reject all", "Отклонить все", "Reject the use of cookies and other data for the purposes described"]) {
+  const button = page.getByRole("button", { name: label }).first();
+  if (await button.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await button.click();
+    log("consent: declined non-essential cookies");
+    break;
+  }
+}
+await page.waitForSelector("video.html5-main-video", { timeout: 60_000 });
+await page.waitForFunction(() => document.querySelector("video")?.readyState >= 1, null, { timeout: 60_000 });
+await page.evaluate((start) => {
+  const video = document.querySelector("video.html5-main-video");
+  video.currentTime = Number(start);
+  video.play().catch(() => {});
+}, startArg);
+await page.waitForTimeout(3000);
+const hostHandle = await page.waitForSelector("#local-youtube-dub-ui", { state: "attached", timeout: 20_000 });
+
+// The panel is in a closed shadow root: start through the extension instead.
+async function pressStart() {
+  const worker = context.serviceWorkers().find((w) => w.url().includes(extensionId))
+    || await context.waitForEvent("serviceworker");
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://www.youtube.com/watch*" });
+    await chrome.tabs.sendMessage(tab.id, { type: "start-dub" });
+  });
+}
+await page.screenshot({ path: path.join(project, ".e2e", "before.png") });
+await pressStart();
+log("pressed start");
+
+const started = Date.now();
+let last = "";
+let seeked = false;
+let firstPlayAt = null;
+while (Date.now() - started < 15 * 60_000) {
+  const state = await page.evaluate(() => {
+    const host = document.getElementById("local-youtube-dub-ui");
+    const video = document.querySelector("video.html5-main-video");
+    const { log, ...data } = host.dataset; return { ...data, time: video.currentTime.toFixed(1), paused: video.paused,
+      volume: video.volume.toFixed(2), rate: video.playbackRate };
+  });
+  const line = JSON.stringify(state);
+  if (line !== last) { log(line); last = line; }
+  const played = Number(state.played || 0);
+  if (played && firstPlayAt == null) {
+    firstPlayAt = Date.now();
+    log(`first phrase after ${((firstPlayAt - started) / 1000).toFixed(1)} s`);
+  }
+  if (/Не удалось|потеряна|недоступн|не найден|ошибк|не скачана/i.test(state.status || "")) {
+    log("FAILED:", state.status);
+    break;
+  }
+  if (seekArg && !seeked && played >= 2) {
+    seeked = true;
+    log(`seeking to ${seekArg}`);
+    await page.evaluate((to) => { document.querySelector("video.html5-main-video").currentTime = Number(to); }, seekArg);
+  }
+  if (played >= wanted && (!seekArg || seeked && played >= wanted + 2)) {
+    log(`OK: ${played} phrases dubbed`);
+    break;
+  }
+  await page.waitForTimeout(1000);
+}
+const journal = await page.evaluate(() => document.getElementById("local-youtube-dub-ui")?.dataset.log).catch(() => "");
+if (journal) console.log(`--- session log ---\n${journal}`);
+await page.screenshot({ path: path.join(project, ".e2e", "after.png") }).catch(() => {});
+await hostHandle.dispose();
+await context.close();
