@@ -304,6 +304,7 @@
       rootEl.dataset.tone = TONES.includes(shown.status.tone) ? shown.status.tone : "idle";
       host.dataset.status = text;
       host.dataset.statusKey = shown.status.key || "";
+      host.dataset.tone = rootEl.dataset.tone;
     }
 
     function paintWarning() {

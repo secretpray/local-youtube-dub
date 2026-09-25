@@ -1,119 +1,119 @@
-# Разработка
+# Development
 
-## Окружение
+## Environment
 
-Нужны:
+You need:
 
-- Mac на Apple Silicon и Homebrew;
+- an Apple Silicon Mac with Homebrew;
 - `rust`, `ffmpeg`, `python@3.13`;
-- Node.js ≥ 18 — для тестов расширения;
-- `librsvg` — только для пересборки иконок.
+- Node.js ≥ 18, for the extension tests;
+- `librsvg`, only to rebuild the icons.
 
-Deno отдельно ставить не нужно: он приходит в `.venv` из PyPI.
+Deno doesn't need a separate install: it comes into `.venv` from PyPI.
 
 ```sh
-make setup      # .venv, модели, голоса ru и uk
-make install    # сборка хоста, bin/config.json, регистрация в браузерах
+make setup      # .venv, models, ru and uk voices
+make install    # build the host, write bin/config.json, register with the browsers
 ```
 
-`make setup` повторять безопасно: он доустанавливает только то, чего не хватает, и каждый раз обновляет yt-dlp. `make install` нужно выполнять после каждого изменения `src/main.rs` и после переноса папки.
+`make setup` is safe to repeat: it only installs what is missing, and it upgrades yt-dlp every time. Run `make install` after every change to `src/main.rs` and after moving the folder.
 
-## Команды
+## Commands
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `make test` | тесты расширения (`node --test tests/`) и Rust (`cargo test`) |
-| `make e2e VIDEO=… START=… PHRASES=… INTO=uk FROM=de` | прогон на настоящем YouTube (см. ниже) |
-| `make preview` | панель во всех состояниях и на всех языках интерфейса, PNG в `.e2e/` |
-| `make icons` | пересобирает PNG-иконки из `extension/icons/lion.svg` |
-| `make uninstall` | снимает регистрацию хоста во всех браузерах |
-| `make clean` | удаляет `target/` и `bin/`; модели и кеш остаются |
+| `make test` | extension tests (`node --test tests/`) and Rust tests (`cargo test`) |
+| `make e2e VIDEO=… START=… PHRASES=… INTO=uk FROM=de` | a run on real YouTube (see below) |
+| `make preview` | the panel in every state and interface language, as PNGs in `.e2e/` |
+| `make icons` | rebuilds the PNG icons from `extension/icons/lion.svg` |
+| `make uninstall` | removes the host registration from every browser |
+| `make clean` | deletes `target/` and `bin/`; models and cache stay |
 
-## Как вносить изменения
+## Making changes
 
-- **Расширение** (`extension/`). В `chrome://extensions` нажмите ↻ на расширении и обновите вкладку YouTube. Сборки нет.
-- **Хост** (`src/main.rs`). Выполните `make install`. Браузер запускает новый процесс хоста на каждый сеанс.
-- **Python-модули** (`worker/`). Изменения подхватываются со следующего сеанса.
+- **Extension** (`extension/`). Press ↻ on the extension in `chrome://extensions` and reload the YouTube tab. There is no build step.
+- **Host** (`src/main.rs`). Run `make install`. The browser starts a new host process for every session.
+- **Python workers** (`worker/`). Changes take effect from the next session.
 
-Новое решение планировщика пишется чистой функцией в `scheduler.js` вместе с тестом. В `content.js` остаётся только применение этого решения к видео.
+A new scheduler decision is written as a pure function in `scheduler.js`, together with a test. `content.js` only applies that decision to the video.
 
-### Строка интерфейса
+### An interface string
 
-1. Добавьте ключ во **все четыре** словаря в `extension/i18n.js`. Плейсхолдеры `{name}` должны совпадать во всех языках.
-2. В коде используйте ключ, а не текст:
-   - `setStatus("status.x", tone, params)` в `content.js`;
-   - `data-i18n="…"` (а также `data-i18n-title`, `data-i18n-aria`) в разметке панели.
+1. Add the key to **all four** dictionaries in `extension/i18n.js`. `{name}` placeholders must match across languages.
+2. Use the key, not the text, in code:
+   - `setStatus("status.x", tone, params)` in `content.js`;
+   - `data-i18n="…"` (and `data-i18n-title`, `data-i18n-aria`) in the panel markup.
 
-Тесты проверяют и совпадение словарей, и то, что каждый использованный ключ существует.
+The tests check that the dictionaries match and that every key used exists.
 
-### Код ошибки
+### An error code
 
-1. В хосте: `Failure::new("code", "английская подробность").with("param", value)`. В `transcribe_video.py`: `DubError("code", detail, param=value)`. Для распознавания код нужно ещё добавить в список известных в `transcribe_video()` хоста.
-2. Добавьте `error.code` во все словари.
-3. Добавьте строку в таблицу ошибок в [ARCHITECTURE.md](ARCHITECTURE.md#ошибки).
+1. In the host: `Failure::new("code", "English detail").with("param", value)`. In `transcribe_video.py`: `DubError("code", detail, param=value)`. A recognition code must also be added to the list of known codes in the host's `transcribe_video()`.
+2. Add `error.code` to every dictionary.
+3. Add a row to the error table in [ARCHITECTURE.md](ARCHITECTURE.md#errors).
 
-Тест найдёт код, для которого нет текста.
+A test catches any code without a message.
 
-### Язык интерфейса
+### An interface language
 
-1. Добавьте код в `LOCALES` и словарь в `MESSAGES` (`i18n.js`).
-2. Добавьте самоназвание языка в `ENDONYMS`.
-3. Добавьте `extension/_locales/<код>/messages.json`.
+1. Add the code to `LOCALES` and a dictionary to `MESSAGES` (`i18n.js`).
+2. Add the language's own name to `ENDONYMS`.
+3. Add `extension/_locales/<code>/messages.json`.
 
-### Язык видео или озвучки
+### A video or dubbing language
 
-**Язык видео.**
+**Video language.**
 
-1. Добавьте код в `SOURCES` (`main.rs`, `panel.js`), в `LANGUAGES` (`transcribe_video.py`) и в фильтр дорожек (`pickTrack` в `subtitles.js`).
-2. Добавьте название в `source_name`.
+1. Add the code to `SOURCES` (`main.rs`, `panel.js`), to `LANGUAGES` (`transcribe_video.py`) and to the track filter (`pickTrack` in `subtitles.js`).
+2. Add its name to `source_name`.
 
-**Язык озвучки.**
+**Dubbing language.**
 
-1. Добавьте код в `TARGETS` (`main.rs`, `panel.js`).
-2. Добавьте голос по умолчанию в `voice_spec`, в `setup.sh` и в миграцию `install-host-macos.sh`.
-3. Добавьте название в `target_name`, а при необходимости — буквы для проверки `wrong_language`.
-4. Проверьте на `scripts/probe-host.py --into <код>`.
+1. Add the code to `TARGETS` (`main.rs`, `panel.js`).
+2. Add a default voice to `voice_spec`, to `setup.sh` and to the migration in `install-host-macos.sh`.
+3. Add its name to `target_name` and, if needed, letters for the `wrong_language` check.
+4. Try it with `scripts/probe-host.py --into <code>`.
 
-## Тесты
+## Tests
 
-- **`tests/extension.test.js`** проверяет:
-  - разбор субтитров, группировку фраз, выбор дорожки;
-  - планировщик, окна распознавания, сборку ответов из частей, фильтр строк без речи;
-  - словари, ключи и коды ошибок.
-- **Тесты в `src/main.rs`** проверяют:
-  - разбиение больших ответов, очистку ответа модели;
-  - определение языка ответа, коды ошибок, проверку входных данных, отбраковку пустого звука.
+- **`tests/extension.test.js`** covers:
+  - subtitle parsing, phrase grouping, track choice, loading subtitles through the player;
+  - the scheduler, recognition windows, joining chunked answers, the no-speech filter;
+  - dictionaries, keys and error codes.
+- **Tests in `src/main.rs`** cover:
+  - splitting large answers, cleaning the model's answer;
+  - detecting the answer's language, error codes, input validation, rejecting empty audio.
 - **e2e** (`e2e/run.mjs`):
-  1. запускает Chrome for Testing с отдельным профилем в `.e2e/profile`;
-  2. регистрирует хост только для этого профиля;
-  3. задаёт `--into` и `--from` в настройках расширения;
-  4. включает перевод через service worker и печатает состояние панели раз в секунду;
-  5. в конце печатает журнал сеанса.
+  1. starts Chrome for Testing with its own profile in `.e2e/profile`;
+  2. registers the host for that profile only;
+  3. sets `--into` and `--from` in the extension's settings;
+  4. turns translation on through the service worker and prints the panel state every second;
+  5. prints the session journal at the end.
 
-  Путь к браузеру задаётся переменной `E2E_CHROME`. YouTube обрывает воспроизведение в автоматизированном браузере примерно через минуту: это не ошибка расширения.
+  `E2E_CHROME` sets the browser path. YouTube stops playback in an automated browser after about a minute; that is not an extension bug. In that browser the player also requests subtitles for the wrong video, so the subtitle path can only be checked in a regular Chrome.
 
-## Отладка
+## Debugging
 
-- **Журнал сеанса.** «Диагностика» → «Скопировать журнал». В нём адрес ролика, показатели и последние 60 событий. Причины пропусков записаны кодом и английской подробностью, например `skip 3:51: reason.decode Unable to decode audio data`.
-- **Хост без браузера.** `.venv/bin/python scripts/probe-host.py [--from en|es|de] [--into ru|uk] [--bare-env]` работает с хостом так же, как браузер, и показывает время каждого ответа. `--bare-env` запускает хост с урезанным `PATH`, как это делает браузер.
-- **Ошибки Python-модулей** уходят в stderr хоста, а его браузер не показывает. Модуль можно запустить отдельно, например `.venv/bin/python worker/piper_worker.py voices/uk_UA-ukrainian_tts-medium.onnx mykyta`, и отправить ему строку JSON.
-- **Код выхода 137** у хоста означает, что macOS убил бинарник, перезаписанный на месте. `make install` копирует его через переименование; не используйте `cp` поверх `bin/local-youtube-dub-host`.
+- **Session journal.** Diagnostics → Copy log. It holds the video URL, the metrics and the last 60 events. Skip reasons are written as a code plus an English detail, e.g. `skip 3:51: reason.decode Unable to decode audio data`, and the subtitle source as e.g. `subtitles: caption-track en via player`.
+- **Host without a browser.** `.venv/bin/python scripts/probe-host.py [--from en|es|de] [--into ru|uk] [--bare-env]` talks to the host the way the browser does and prints how long each answer took. `--bare-env` starts the host with a bare `PATH`, as the browser does.
+- **Python worker errors** go to the host's stderr, which the browser doesn't show. Run a worker on its own, e.g. `.venv/bin/python worker/piper_worker.py voices/uk_UA-ukrainian_tts-medium.onnx mykyta`, and send it a JSON line.
+- **Exit code 137** from the host means macOS killed a binary that was overwritten in place. `make install` copies it and renames it into place; don't `cp` over `bin/local-youtube-dub-host`.
 
-## Ключ расширения
+## Extension key
 
-ID `gaogomdebhnfgajgcpahcmdjfmelkhij` выводится из открытого ключа в поле `key` файла `extension/manifest.json`. Закрытый ключ `.e2e/extension-key.pem` в репозиторий не входит. Он нужен только для упаковки `.crx` и публикации, поэтому держите его резервную копию отдельно: без него ID при публикации сменится.
+The ID `gaogomdebhnfgajgcpahcmdjfmelkhij` is derived from the public key in the `key` field of `extension/manifest.json`. The private key `.e2e/extension-key.pem` is not in the repository. It is only needed to pack a `.crx` or to publish, so keep a backup elsewhere: without it the ID changes on publishing.
 
-## Выпуск версии
+## Releasing
 
-1. Поднимите `version` в `extension/manifest.json` и `Cargo.toml`, запишите изменения в [CHANGELOG.md](../CHANGELOG.md).
-2. Выполните `make test`, `make preview` и короткие `make e2e` с `INTO=ru` и `INTO=uk`.
-3. Вручную в своём браузере проверьте:
-   - ролик с субтитрами и ролик без них;
-   - перемотку, паузу, стоп, перетаскивание;
-   - смену языка интерфейса.
+1. Bump `version` in `extension/manifest.json` and `Cargo.toml`, and record the changes in [CHANGELOG.md](../CHANGELOG.md).
+2. Run `make test`, `make preview` and short `make e2e` runs with `INTO=ru` and `INTO=uk`.
+3. Check by hand in your own browser:
+   - a video with subtitles and one without;
+   - seeking, pause, stop, dragging;
+   - switching the interface language.
 
-## Соглашения
+## Conventions
 
-- **Язык кода и интерфейса.** Комментарии в коде пишутся по-английски и объясняют причину, а не пересказывают код. Тексты интерфейса хранятся только в `i18n.js`.
-- **Неочевидные исправления.** Рядом с кодом объясняется, что ломалось без этого исправления.
-- **Нативные `<select>`.** В панели их нет: в тёмной теме они рисуются системой. Выбор сделан кнопками и собственным меню.
+- **Language.** All documentation and code comments are in English. Interface text for viewers lives only in `i18n.js`, in every supported language.
+- **Comments.** They explain why, not what. Next to a non-obvious fix, a comment says what broke without it.
+- **No native `<select>`.** The panel has none: in a dark theme they are drawn by the system. Choices are buttons and a custom menu.

@@ -1,148 +1,140 @@
-# Критическое ревью
+# Critical review
 
-Дата: 25 сентября 2026 года. Версия 0.3.0.
+Date: 25 September 2026. Version 0.3.0.
 
-**Что проверено:**
+**What was checked:**
 
-- весь код расширения, хоста и Python-модулей, скрипты установки, тесты;
-- работа на реальном YouTube: `cMX-u9ltG5Q` (английский, без субтитров) и `WADUe-zUE4U` (английский, YouTube ошибочно считает его арабским);
-- озвучка на русском и на украинском.
+- all code in the extension, the host and the Python workers, the install scripts, the tests;
+- real YouTube videos: `cMX-u9ltG5Q` (English, no subtitles) and `WADUe-zUE4U` (English, auto-dubbed by YouTube into 20 languages);
+- dubbing into Russian and into Ukrainian.
 
-## Итог
+## Summary
 
-Проект делает то, что обещает: озвучивает английские, испанские и немецкие ролики на русском или украинском полностью локально. Интерфейс работает на четырёх языках.
+The project does what it promises: it dubs English, Spanish and German videos into Russian or Ukrainian, entirely on the Mac, with a four-language interface.
 
-Архитектура выдержала расширение без переделок: новый язык озвучки — это новый голос и две строки в списках, новый язык интерфейса — это словарь.
+The architecture took these extensions without rework: a new dubbing language is a voice and two entries in lists, a new interface language is a dictionary.
 
-Сделан шаг в сторону сопровождаемости: у ошибок теперь есть коды, а тесты проверяют, что для каждого кода есть текст во всех языках. Ошибку, которая раньше выводила пользователю лог yt-dlp, теперь невозможно допустить незаметно.
+Maintainability took a step forward: errors carry codes, and tests check that every code has a message in every language. The mistake of showing the viewer a raw yt-dlp log can no longer slip through unnoticed.
 
-Главные риски:
+Main risks:
 
-- зависимость от внутренностей YouTube (теперь сюда добавился и JavaScript-вызов, который YouTube требует для скачивания звука);
-- только Apple Silicon;
-- `content.js` без тестов на применение решений к видео.
+- dependence on YouTube internals, now including the JavaScript challenge YouTube requires before it serves audio, and the player API the subtitles are loaded through;
+- Apple Silicon only;
+- no tests for how `content.js` applies decisions to the video.
 
-## Замеры
+## Measurements
 
-M1 Pro, 16 ГБ. Хост запущен с урезанным `PATH`, как его запускает браузер.
+M1 Pro, 16 GB. The host was started with a bare `PATH`, as the browser starts it.
 
-| Что | Значение | Как измерено |
+| What | Value | How measured |
 |---|---|---|
-| Проверка состояния | 0,4 с | `scripts/probe-host.py --bare-env` |
-| Первая фраза сеанса | 5,4–5,8 с (загрузка модели перевода) | то же, `--into ru` и `--into uk` |
-| Каждая следующая фраза | ≈ 0,7 с | то же |
-| Распознавание участка 180 с | 6,7 с, если звук уже скачан | запрос `transcribe` |
-| Скачивание звука и распознавание нового участка | 17,9 с (ролик 8,5 мин) | `WADUe-zUE4U`, окно 3:00–6:00 |
-| Память хоста с моделями | ≈ 1,5 ГБ по RSS | `ps` во время сеанса |
-| Украинская речь относительно фразы в видео | до 1,2× длиннее (13,5 с голоса на 11 с) | журнал сеанса e2e |
+| Status check | 0.4 s | `scripts/probe-host.py --bare-env` |
+| First phrase of a session | 5.4–5.8 s (loading the translation model) | same, `--into ru` and `--into uk` |
+| Each following phrase | ≈ 0.7 s | same |
+| Recognizing a 180 s section | 6.7 s with the audio already downloaded | `transcribe` request |
+| Downloading audio and recognizing a new section | 17.9 s (8.5-minute video) | `WADUe-zUE4U`, window 3:00–6:00 |
+| Host memory with models loaded | ≈ 1.5 GB RSS | `ps` during a session |
+| Ukrainian speech vs. the phrase in the video | up to 1.2× longer (13.5 s of voice for 11 s) | e2e session journal |
 
-Не замерено: качество перевода на эталонном наборе, память Whisper во время распознавания, скачивание звука для роликов на несколько часов.
+Not measured: translation quality on a reference set, Whisper's memory during recognition, audio downloads for multi-hour videos.
 
-## Исправлено в этом цикле
+## Fixed in this cycle
 
-| # | Серьёзность | Что было | Что сделано | Проверено |
+| # | Severity | Problem | Fix | Verified |
 |---|---|---|---|---|
-| 1 | высокая | Распознавание падало с `HTTP Error 403`: yt-dlp нужен JavaScript-движок, чтобы получить ссылку на звук YouTube | Deno в `.venv` из PyPI, `yt-dlp[default]`, `.venv/bin` первым в `PATH` хоста | `WADUe-zUE4U`: скачивание и распознавание при урезанном `PATH` |
-| 2 | высокая | Длинные фразы пропускались с «Unable to decode audio data»: части звука склеивались после первой, потому что `.some()` не видит дыр в `new Array(n)` | `collectChunk` считает полученные части; то же для больших расшифровок | тест и e2e на украинском: 0 пропущенных фраз вместо 4 |
-| 3 | высокая | Украинский голос обучен на буквах и молча пропускал заглавные, цифры и латиницу («Rails», «20») | нормализация текста в `piper_worker.py`: строчная кириллица, числа словами | озвучка без пропущенных символов |
-| 4 | средняя | В панель выводился многострочный лог yt-dlp на английском | коды ошибок в хосте и Python, тексты на языке интерфейса, одна строка причины | тесты кодов, предпросмотр ошибок |
-| 5 | средняя | Модель могла ответить по-русски вместо украинского | проверка «чужих» букв и один повтор со строгой инструкцией | тест `wrong_language` |
-| 6 | низкая | Отмена распознавания не останавливала yt-dlp и ffmpeg | распознавание в своей группе процессов, отмена убивает всю группу | код |
-| 7 | высокая | Субтитры YouTube не загружались ни на одном ролике: без токена `pot` YouTube отдаёт пустой ответ | загрузка через плеер, выбор дорожки исходной речи, ожидание конца рекламы | обычный Chrome, `WADUe-zUE4U`: источник «Субтитры YouTube» |
+| 1 | high | Recognition failed with `HTTP Error 403`: yt-dlp needs a JavaScript runtime to get YouTube's audio URL | Deno in `.venv` from PyPI, `yt-dlp[default]`, `.venv/bin` first on the host's `PATH` | `WADUe-zUE4U`: download and recognition with a bare `PATH` |
+| 2 | high | Long phrases were skipped with "Unable to decode audio data": chunked audio was joined after the first part, because `.some()` skips the holes of `new Array(n)` | `collectChunk` counts the parts received; same for large transcripts | test, and an e2e run in Ukrainian: 0 skipped phrases instead of 4 |
+| 3 | high | The Ukrainian voice is trained on letters and silently dropped capitals, digits and Latin words ("Rails", "20") | text normalization in `piper_worker.py`: lower-case Cyrillic, numbers spelled out | voice-over with nothing dropped |
+| 4 | medium | The panel showed yt-dlp's multi-line English log | error codes in the host and Python, messages in the interface language, a one-line cause | code tests, error previews |
+| 5 | medium | The model could answer in Russian instead of Ukrainian | check for the other language's letters, one retry with a strict instruction | `wrong_language` test |
+| 6 | low | Cancelling recognition left yt-dlp and ffmpeg running | recognition runs in its own process group, cancelling kills the whole group | code |
+| 7 | high | YouTube subtitles were never loaded: without the `pot` token YouTube returns an empty answer | loading through the player, choosing the original-speech track, waiting for ads to end | regular Chrome, `WADUe-zUE4U`: source "YouTube subtitles" |
 
-## Открытые проблемы
+## Open issues
 
-Отсортированы по серьёзности.
+Ordered by severity.
 
-### 1. Зависимость от внутренностей YouTube (высокая)
+### 1. Dependence on YouTube internals (high)
 
-Проект читает данные, которые YouTube не публикует как API:
+The project reads data YouTube does not publish as an API:
 
-- `captionTracks` и `json3`;
-- классы плеера `ad-showing` и `ytp-error`;
-- разметку расшифровки;
-- формат, который разбирает yt-dlp. Теперь ещё и JavaScript-вызов, который YouTube требует для получения ссылки на звук.
+- `captionTracks` and `json3`;
+- the player API used to load subtitles (`setOption("captions", …)`) and the shape of its requests;
+- the player classes `ad-showing` and `ytp-error`;
+- the transcript markup;
+- whatever yt-dlp parses, now including the JavaScript challenge YouTube requires before serving audio.
 
-Этот цикл показал, как это выглядит на практике: вчера рабочее скачивание сегодня отвечает `403`.
+This cycle showed what that looks like in practice: a download that worked yesterday answered `403` today, and subtitles silently stopped loading because of a new token requirement.
 
-**Что сделано:**
-- `make setup` каждый раз обновляет `yt-dlp[default]`;
-- причины сбоя различаются кодами: `js_runtime_missing`, `youtube_blocked`, `download_failed`.
+**Done:**
+- `make setup` upgrades `yt-dlp[default]` every time;
+- failure causes have distinct codes: `js_runtime_missing`, `youtube_blocked`, `download_failed`;
+- if subtitles can't be loaded, the extension falls back to speech recognition: slower, but still working.
 
-**Рекомендация:**
-- образцы ответов YouTube в `tests/fixtures/`;
-- еженедельный короткий `make e2e` на ролике с субтитрами и ролике без них.
+**Recommendation:**
+- sample YouTube responses in `tests/fixtures/`;
+- a short weekly check in a regular browser on a video with subtitles and one without. e2e can't cover the subtitle path: in an automated browser the player requests subtitles for another video.
 
-### 2. Субтитры YouTube не загружались (высокая) — исправлено
+### 2. Ukrainian voice-over is longer than the original (medium)
 
-YouTube отвечает `200` с пустым телом на запрос субтитров без токена `pot`, который умеет добавлять только плеер. Поэтому ролики с субтитрами молча уходили в распознавание речи.
+The `ukrainian_tts` voice speaks slower, and a Ukrainian translation is longer than the English original. On long phrases the voice runs up to 1.2× longer than its slot in the video. Speed-up is capped at 1.39× to stay intelligible, so the video pauses at phrase boundaries more often.
 
-Теперь субтитры загружаются через плеер: `page-hook.js` плюс API плеера в основном мире страницы. При автодубляже YouTube выбирается дорожка исходной речи.
+**Recommendation:**
+- give the model a word budget derived from the phrase's duration ("at most N words");
+- for Ukrainian, try `length_scale` down to 0.65 and listen for intelligibility.
 
-**Проверено** в обычном Chrome на `WADUe-zUE4U`: 21 автоматическая дорожка, автодубляж, источник в «Диагностике» — «Субтитры YouTube».
+### 3. Translation quality is not measured (medium)
 
-**Остаётся риском.** Этот путь опирается на внутренний API плеера (`setOption("captions", …)`) и на формат его запросов. Если YouTube их поменяет, расширение снова уйдёт в распознавание речи. Работать оно продолжит, но медленнее. В e2e этот путь не проверить: в браузере под управлением автоматики плеер запрашивает субтитры другого ролика.
+Qwen3-4B is mostly right, but it produces:
 
-### 3. Украинская озвучка длиннее оригинала (средняя)
+- Russianisms in Ukrainian ("честно" instead of "чесно");
+- agreement errors in Russian;
+- overly literal phrasing.
 
-Голос `ukrainian_tts` читает медленнее, а украинский перевод длиннее английского оригинала. На длинных фразах голос до 1,2 раза длиннее своего места в видео. Ускорение ограничено 1,39 разами ради разборчивости, поэтому видео чаще притормаживает на границах фраз.
+The letter check only catches an answer entirely in the wrong language, not single words.
 
-**Рекомендация:**
-- передавать модели бюджет слов по длительности фразы («не более N слов»);
-- для украинского попробовать `length_scale` до 0,65 и послушать разборчивость.
+**Recommendation:** a reference set of 10 videos × 20 phrases, rated 1–5 by hand for each language pair. Compare `Qwen3-8B` at 4 bits (about 4.5 GB) on the same set.
 
-### 4. Качество перевода не измеряется (средняя)
+### 4. `content.js`: flag-based state without tests (medium)
 
-Qwen3-4B переводит в целом верно. Но встречаются:
+About 630 lines. Decisions live in `scheduler.js` and are tested; applying them to the video is only checked by hand. The chunk-joining bug (fixed item 2) was exactly that: pure logic inside untested code. It has been moved into `collectChunk` with a test, but the rest of the session is built the same way.
 
-- русизмы в украинском («честно» вместо «чесно»);
-- ошибки согласования в русском;
-- буквальность.
+**Recommendation:** extract a session class with adapters for the video and the audio, and run scenarios against a fake `<video>`.
 
-Проверка «чужих» букв ловит только ответ целиком на другом языке, а не отдельные слова.
+### 5. Recognition: cold start and section boundaries (medium)
 
-**Рекомендация:** эталонный набор из 10 роликов по 20 фраз, ручная оценка по шкале 1–5 для каждой пары языков. На том же наборе сравнить с `Qwen3-8B` в 4 битах, около 4,5 ГБ.
+- **Whole download.** The audio is downloaded in full before the first section.
+- **Model per section.** Whisper is loaded again for every section.
+- **Split sentences.** Sentences at the 180 s section boundaries are cut.
 
-### 5. `content.js`: состояние на флагах без тестов (средняя)
+**Recommendation:**
+- `--download-sections` for the first section;
+- a persistent Whisper worker;
+- 5 s overlap between sections.
 
-Около 630 строк. Решения вынесены в `scheduler.js` и протестированы, а их применение к видео проверяется только вручную. Ошибка со склейкой частей (№ 2 выше) была именно такой: чистая логика внутри непротестированного кода. Её вынесли в `collectChunk` вместе с тестом, но остальная часть сеанса устроена так же.
+### 6. The host's log is lost (low)
 
-**Рекомендация:** выделить класс сеанса с адаптерами для видео и звука и прогнать сценарии с поддельным `<video>`.
+The browser doesn't show the stderr of the host or its workers. Error codes made the messages clear, but the root cause of a model failing to load is only visible from a terminal.
 
-### 6. Распознавание: холодный старт и границы участков (средняя)
+**Recommendation:** write `cache/host.log` with a size limit.
 
-- **Скачивание целиком.** Звук скачивается целиком до первого участка.
-- **Модель на каждый участок.** Whisper загружается заново для каждого участка.
-- **Разрезанные предложения.** Предложения на границах участков по 180 с режутся.
+### 7. Other technical debt (low)
 
-**Рекомендация:**
-- `--download-sections` для первого участка;
-- постоянный модуль Whisper;
-- перекрытие участков на 5 с.
+- **Timeouts in two places.** The extension waits 45 s for a phrase, the host 40 s for a worker; changing one it is easy to forget the other.
+- **"Preparation speed"** in Diagnostics includes time spent queued, so it reads low.
+- **Setting name.** The video language is stored under `language`, which is ambiguous next to `into` and `uiLocale`. It can be renamed together with a migration of stored settings.
+- **Old names.** The `local-youtube-dub-host` binary and the `org.local_youtube_dub.host` host name predate the current product name.
+- **No CI.**
+- **The extension's private key** exists in a single copy.
 
-### 7. Журнал хоста теряется (низкая)
+### 8. Platform and resources (accepted limitation)
 
-stderr хоста и модулей браузер не показывает. Коды ошибок сделали сообщения понятными, но первопричину сбоя загрузки модели можно увидеть только из терминала.
+Apple Silicon only, about 4.5 GB on disk (models, `.venv`, two voices) and about 1.5 GB of memory per session. For a personal tool on a Mac this is a fair price.
 
-**Рекомендация:** писать `cache/host.log` с ограничением размера.
+## What works well
 
-### 8. Прочий технический долг (низкая)
-
-- **Таймауты в двух местах.** Расширение ждёт фразу 45 с, хост ждёт модуль 40 с; изменив одно, легко забыть другое.
-- **«Скорость подготовки»** в «Диагностике» включает ожидание в очереди, поэтому занижена.
-- **Имя настройки.** Язык видео хранится под ключом `language`, рядом с `into` и `uiLocale` это двусмысленно. Переименовать можно вместе с переносом сохранённых настроек.
-- **Старые имена.** Бинарник `local-youtube-dub-host` и хост `org.local_youtube_dub.host` остались от прежнего названия.
-- **Нет CI** и удалённого репозитория.
-- **Закрытый ключ расширения** существует в одном экземпляре.
-
-### 9. Платформа и ресурсы (принятое ограничение)
-
-Только Apple Silicon, около 4,5 ГБ на диске (модели, `.venv`, два голоса) и около 1,5 ГБ памяти на сеанс. Для личного инструмента на Mac это разумная цена.
-
-## Что сделано хорошо
-
-- **Три независимых оси языков.** Язык видео, язык озвучки и язык интерфейса не зависят друг от друга. Добавить язык — задача на полчаса, с чек-листом в [DEVELOPMENT.md](DEVELOPMENT.md).
-- **Ошибки — это данные, а не текст.** Хост и Python отдают коды, панель переводит их на язык интерфейса. Тест не даст выпустить код без текста.
-- **Названия языков на самих языках.** Языки в меню и настройках написаны на самих себе, так что человек найдёт свой язык, даже если интерфейс ему незнаком.
-- **Изоляция отказов.** Пропускается фраза, а не весь сеанс. Зависший модуль перезапускается, отмена убивает всю группу процессов.
-- **Переносимость.** Относительные пути, фиксированный ID расширения, Deno внутри `.venv`, установка двумя командами.
+- **Three independent language axes.** Video language, dubbing language and interface language don't depend on each other. Adding a language is half an hour's work, with a checklist in [DEVELOPMENT.md](DEVELOPMENT.md).
+- **Errors are data, not text.** The host and Python return codes, and the panel turns them into the interface language. A test won't let a code ship without a message.
+- **Languages named in themselves.** In menus and settings each language is written in itself, so people find theirs even in an interface they can't read.
+- **Failure isolation.** A phrase is skipped, not the session. A hung worker is restarted, and cancelling kills the whole process group.
+- **Portability.** Relative paths, a fixed extension ID, Deno inside `.venv`, installation in two commands.

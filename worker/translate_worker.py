@@ -22,7 +22,7 @@ def main():
     try:
         model, tokenizer = load(sys.argv[1])
     except Exception as error:
-        message = f"Модель перевода {sys.argv[1]} не найдена ({error}). Выполните make setup"
+        message = f"Translation model {sys.argv[1]} not found ({error}). Run make setup"
         print(json.dumps({"error": message}, ensure_ascii=False), flush=True)
         return
     # Handshake: the host waits for this line, so a load failure is reported
