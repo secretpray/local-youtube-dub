@@ -1,0 +1,6 @@
+# Translation (llama.cpp) and recognition (faster-whisper) everywhere else:
+# Linux, Intel Macs. llama-cpp-python compiles on install and needs a C/C++
+# toolchain and cmake.
+-r requirements.txt
+llama-cpp-python
+faster-whisper

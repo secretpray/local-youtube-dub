@@ -6,7 +6,6 @@
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,7 +15,9 @@ const flag = (name) => process.argv.find((arg) => arg.startsWith(`--${name}=`))?
 const seekArg = flag("seek");
 const wanted = Number(phrasesArg);
 const extension = path.join(project, "extension");
-const profile = path.join(project, ".e2e", "profile");
+// A snap browser only reaches its own directories: E2E_PROFILE moves the profile
+// there (e.g. ~/snap/chromium/common/e2e-profile).
+const profile = process.env.E2E_PROFILE || path.join(project, ".e2e", "profile");
 const manifest = JSON.parse(fs.readFileSync(path.join(extension, "manifest.json"), "utf8"));
 const der = Buffer.from(manifest.key, "base64");
 const { createHash } = await import("node:crypto");
@@ -34,18 +35,23 @@ fs.writeFileSync(path.join(profile, "NativeMessagingHosts", "org.local_youtube_d
     allowed_origins: [`chrome-extension://${extensionId}/`],
   }, null, 2));
 
-const executable = process.env.E2E_CHROME || path.join(os.homedir(),
-  "Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing");
+// Playwright's own Chromium for this OS (npx playwright-core install chromium),
+// unless E2E_CHROME names another build that still accepts --load-extension.
+const executable = process.env.E2E_CHROME || chromium.executablePath();
 const context = await chromium.launchPersistentContext(profile, {
   executablePath: executable,
   headless: false,
-  viewport: { width: 1280, height: 800 },
+  // The real window size: a forced viewport can be taller than a small screen
+  // (a VM's display), and the panel is pinned to a page edge nobody can see.
+  viewport: null,
   ignoreDefaultArgs: ["--mute-audio"],
   args: [
     `--disable-extensions-except=${extension}`,
     `--load-extension=${extension}`,
     "--autoplay-policy=no-user-gesture-required",
     "--window-position=40,40",
+    // A Linux desktop on Wayland has no X server for Chromium's default backend.
+    ...(process.platform === "linux" && process.env.WAYLAND_DISPLAY ? ["--ozone-platform=wayland"] : []),
   ],
 });
 // Panel settings live in extension storage; set them before the page reads them.

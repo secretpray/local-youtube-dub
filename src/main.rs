@@ -28,6 +28,9 @@ use std::time::Duration;
 const MAX_INCOMING: usize = 2 * 1024 * 1024;
 const MAX_OUTGOING: usize = 950_000;
 const DEFAULT_MLX_MODEL: &str = "mlx-community/Qwen3-4B-Instruct-2507-4bit";
+/// The same model as a GGUF file for llama.cpp: `org/repo/file` on Hugging Face.
+const DEFAULT_LLAMA_MODEL: &str =
+    "unsloth/Qwen3-4B-Instruct-2507-GGUF/Qwen3-4B-Instruct-2507-Q4_K_M.gguf";
 const DEFAULT_OLLAMA_MODEL: &str = "qwen3:4b-instruct";
 /// Languages a video may be in, and languages it can be dubbed into.
 const SOURCES: [&str; 4] = ["auto", "en", "es", "de"];
@@ -153,10 +156,16 @@ fn main() {
         let response = match request.get("type").and_then(Value::as_str) {
             Some("status") => {
                 let target = target_of(&request);
+                // A check before recognising speech asks not to warm up: the
+                // translation model and Whisper loading side by side are what
+                // ran a 5 GB machine out of memory.
+                let warm = request.get("warm").and_then(Value::as_bool) != Some(false);
                 match preflight(&target) {
                     Ok(result) => {
-                        let _ = translate_tx.send(Job::Warm(target.clone()));
-                        let _ = synth_tx.send(Job::Warm(target));
+                        if warm {
+                            let _ = translate_tx.send(Job::Warm(target.clone()));
+                            let _ = synth_tx.send(Job::Warm(target));
+                        }
                         Some(json!({"id": id, "ok": true, "result": result}))
                     }
                     Err(failure) => Some(failure.response(id)),
@@ -686,19 +695,36 @@ fn wrong_language(text: &str, target: &str) -> bool {
     text.chars().any(|character| is_han(character) || foreign.contains(&character))
 }
 
+/// MLX exists only on Apple Silicon; every other platform runs the same models
+/// through llama.cpp (translation) and faster-whisper (recognition).
+fn apple_silicon() -> bool {
+    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+}
+
 #[derive(Default)]
 struct Translator {
-    mlx: Option<LineWorker>,
+    worker: Option<LineWorker>,
 }
 
 impl Translator {
+    /// `mlx`, `llama` or `ollama`.
     fn backend() -> String {
-        setting("DUB_TRANSLATOR", "/translator", "mlx")
+        let default = if apple_silicon() { "mlx" } else { "llama" };
+        setting("DUB_TRANSLATOR", "/translator", default)
+    }
+
+    /// The model for a worker-based backend: an MLX repository, or a GGUF
+    /// file as `org/repo/file` or a local path.
+    fn model(backend: &str) -> String {
+        match backend {
+            "llama" => setting("DUB_LLAMA_MODEL", "/llama_model", DEFAULT_LLAMA_MODEL),
+            _ => setting("DUB_MLX_MODEL", "/mlx_model", DEFAULT_MLX_MODEL),
+        }
     }
 
     fn warm(&mut self) {
-        if Self::backend() == "mlx" && self.mlx.is_none() {
-            self.mlx = start_mlx().ok();
+        if Self::backend() != "ollama" && self.worker.is_none() {
+            self.worker = start_translator().ok();
         }
     }
 
@@ -706,14 +732,14 @@ impl Translator {
         if Self::backend() == "ollama" {
             return ollama_complete(system, prompt, temperature);
         }
-        if self.mlx.is_none() {
-            self.mlx = Some(start_mlx()?);
+        if self.worker.is_none() {
+            self.worker = Some(start_translator()?);
         }
         let request = json!({"system": system, "prompt": prompt,
             "temperature": temperature, "maxTokens": 240});
-        let result = self.mlx.as_mut().expect("worker just started").call(&request);
+        let result = self.worker.as_mut().expect("worker just started").call(&request);
         if result.is_err() {
-            self.mlx = None;
+            self.worker = None;
         }
         Ok(result?
             .get("text")
@@ -754,11 +780,31 @@ impl Translator {
     }
 }
 
-fn start_mlx() -> Result<LineWorker, Failure> {
+fn start_translator() -> Result<LineWorker, Failure> {
+    let backend = Translator::backend();
     LineWorker::start(
         "translate_worker.py",
-        &[setting("DUB_MLX_MODEL", "/mlx_model", DEFAULT_MLX_MODEL)],
+        &[backend.clone(), Translator::model(&backend)],
     )
+}
+
+/// `mlx` (MLX Whisper) on Apple Silicon, `faster-whisper` elsewhere.
+fn asr_engine() -> String {
+    let default = if apple_silicon() { "mlx" } else { "faster-whisper" };
+    setting("DUB_ASR_ENGINE", "/asr", default)
+}
+
+/// Whether a Hugging Face model is in the project's cache (or is a local path).
+/// For a GGUF `org/repo/file`, the repository part is what is cached.
+fn model_present(model: &str, gguf: bool) -> bool {
+    if Path::new(model).exists() {
+        return true;
+    }
+    let repo = if gguf { model.rsplit_once('/').map_or(model, |(repo, _)| repo) } else { model };
+    project_dir()
+        .join("cache/huggingface/hub")
+        .join(format!("models--{}", repo.replace('/', "--")))
+        .is_dir()
 }
 
 fn ollama_endpoint() -> Result<String, Failure> {
@@ -848,18 +894,21 @@ fn clean_translation(raw: &str) -> String {
 /// Checks everything a session needs before the first phrase is sent, so a
 /// missing piece is one clear message instead of every phrase failing.
 fn preflight(target: &str) -> Result<Value, Failure> {
+    // A snap browser starts the host inside its sandbox, where /usr is the
+    // snap's own: the project's Python environment points at the system
+    // Python and cannot run there. Say so, instead of "Python not found".
+    if let Ok(snap) = env::var("SNAP_NAME") {
+        return Err(Failure::new("sandboxed_browser", format!("started by snap {snap}")));
+    }
     let python = python();
     if !python.is_file() {
         return Err(Failure::new("python_missing", python.display().to_string()));
     }
     let translator = Translator::backend();
     match translator.as_str() {
-        "mlx" => {
-            let model = setting("DUB_MLX_MODEL", "/mlx_model", DEFAULT_MLX_MODEL);
-            let cached = project_dir()
-                .join("cache/huggingface/hub")
-                .join(format!("models--{}", model.replace('/', "--")));
-            if !cached.is_dir() && !Path::new(&model).is_dir() {
+        "mlx" | "llama" => {
+            let model = Translator::model(&translator);
+            if !model_present(&model, translator == "llama") {
                 return Err(Failure::new("translation_model_missing", model.clone())
                     .with("model", model));
             }
@@ -880,7 +929,8 @@ fn preflight(target: &str) -> Result<Value, Failure> {
     Ok(json!({
         "translator": translator,
         "voice": voice.path.file_name().map(|name| name.to_string_lossy().into_owned()),
-        "recognition": {"ffmpeg": found("ffmpeg"), "jsRuntime": found("deno")},
+        "recognition": {"engine": asr_engine(), "ffmpeg": found("ffmpeg"),
+            "jsRuntime": found("deno")},
     }))
 }
 
@@ -933,6 +983,7 @@ fn transcribe_video(job: &TranscriptionJob, cancel: mpsc::Receiver<()>) -> Resul
         .arg(job.start.to_string())
         .arg(job.window.to_string())
         .arg(&job.language)
+        .env("DUB_ASR_ENGINE", asr_engine())
         .process_group(0)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -1060,6 +1111,15 @@ mod tests {
         assert_eq!(response["code"], "voice_missing");
         assert_eq!(response["params"]["target"], "uk");
         assert_eq!(response["ok"], false);
+    }
+
+    #[test]
+    fn finds_cached_gguf_models_by_repository() {
+        assert!(!model_present("nobody/none-GGUF/none.gguf", true));
+        assert_eq!(
+            DEFAULT_LLAMA_MODEL.rsplit_once('/').unwrap().0,
+            "unsloth/Qwen3-4B-Instruct-2507-GGUF"
+        );
     }
 
     #[test]

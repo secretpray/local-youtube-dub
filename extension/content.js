@@ -489,7 +489,9 @@
     show();
     p.timer = setInterval(show, 1000);
     try {
-      await requestOnce(port, { id: "preflight", type: "status", into: panel.into });
+      // No warm-up here: models load for the session, after recognition, so
+      // Whisper and the translation model are never loading at the same time.
+      await requestOnce(port, { id: "preflight", type: "status", into: panel.into, warm: false });
       const result = await requestOnce(port, {
         id: "transcription", type: "transcribe", videoId,
         startSeconds: Math.floor(video.currentTime / ASR_WINDOW) * ASR_WINDOW,

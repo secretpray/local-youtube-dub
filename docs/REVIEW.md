@@ -1,16 +1,17 @@
 # Critical review
 
-Date: 25 September 2026. Version 0.3.0.
+Date: 25 September 2026, version 0.3.0; Linux section updated 26 September 2026.
 
 **What was checked:**
 
 - all code in the extension, the host and the Python workers, the install scripts, the tests;
 - real YouTube videos: `cMX-u9ltG5Q` (English, no subtitles) and `WADUe-zUE4U` (English, auto-dubbed by YouTube into 20 languages);
-- dubbing into Russian and into Ukrainian.
+- dubbing into Russian and into Ukrainian;
+- Linux: Ubuntu 26.04 ARM in a UTM virtual machine, with Playwright's Chromium and the snap Chromium.
 
 ## Summary
 
-The project does what it promises: it dubs English, Spanish and German videos into Russian or Ukrainian, entirely on the Mac, with a four-language interface.
+The project does what it promises: it dubs English, Spanish and German videos into Russian or Ukrainian, entirely on the user's own computer (macOS or Linux), with a four-language interface.
 
 The architecture took these extensions without rework: a new dubbing language is a voice and two entries in lists, a new interface language is a dictionary.
 
@@ -19,7 +20,7 @@ Maintainability took a step forward: errors carry codes, and tests check that ev
 Main risks:
 
 - dependence on YouTube internals, now including the JavaScript challenge YouTube requires before it serves audio, and the player API the subtitles are loaded through;
-- Apple Silicon only;
+- memory: 8 GB of RAM in practice, and Windows is not supported yet;
 - no tests for how `content.js` applies decisions to the video.
 
 ## Measurements
@@ -127,9 +128,15 @@ The browser doesn't show the stderr of the host or its workers. Error codes made
 - **No CI.**
 - **The extension's private key** exists in a single copy.
 
-### 8. Platform and resources (accepted limitation)
+### 8. Platform and resources
 
-Apple Silicon only, about 4.5 GB on disk (models, `.venv`, two voices) and about 1.5 GB of memory per session. For a personal tool on a Mac this is a fair price.
+macOS and Linux are supported; Windows is not yet. Apple Silicon needs about 4.5 GB on disk, Linux about 3.5 GB. About 1.5 GB of memory per session, and in practice 8 GB of RAM: on a 5 GB Linux VM a browser playing YouTube and the 4B model thrashed, and the first phrases missed their 40 s deadline.
+
+Measured on Linux (Ubuntu 26.04 ARM VM, 4 cores, M1 Pro host): setup 5 min 44 s including the llama.cpp build; ≈ 9 s model load, then ≈ 1.3 s per phrase; downloading audio and recognizing a 180 s section 39.5 s.
+
+Browser run on the same VM with 8 GB and sound: the whole session works (speech recognition, translation, voice, no skips), at about 11 s of preparation per 10 s phrase, so the video pauses more often than on a Mac. Snap Chromium was checked and cannot run the host from its sandbox; it is reported to the viewer and no longer registered.
+
+**Open on Linux:** CPU speed. Options: a smaller model on the CPU (Qwen3-1.7B, faster and weaker), shorter context for CPU backends, or batching phrases.
 
 ## What works well
 

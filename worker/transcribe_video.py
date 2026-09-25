@@ -104,6 +104,28 @@ def _audio_source(video_id):
     return candidates[0]
 
 
+def recognise(wav_path, language_tag):
+    """Speech to timed segments. MLX Whisper on Apple Silicon (the host sets
+    DUB_ASR_ENGINE), faster-whisper on the CPU everywhere else."""
+    options = {"language": language_tag} if language_tag != "auto" else {}
+    if os.environ.get("DUB_ASR_ENGINE", "mlx") == "mlx":
+        import mlx_whisper
+
+        model = os.environ.get("DUB_ASR_MODEL", "mlx-community/whisper-small-mlx")
+        result = mlx_whisper.transcribe(str(wav_path), path_or_hf_repo=model,
+                                       verbose=None, task="transcribe", **options)
+        return {"language": result.get("language"), "model": model,
+                "segments": result["segments"]}
+    from faster_whisper import WhisperModel
+
+    model = os.environ.get("DUB_ASR_MODEL", "Systran/faster-whisper-small")
+    whisper = WhisperModel(model, device="cpu", compute_type="int8",
+                           cpu_threads=os.cpu_count() or 4)
+    parts, info = whisper.transcribe(str(wav_path), vad_filter=True, **options)
+    segments = [{"start": part.start, "end": part.end, "text": part.text} for part in parts]
+    return {"language": info.language, "model": model, "segments": segments}
+
+
 def transcribe(video_id, start_seconds=0, window_seconds=180, language=None):
     import shutil
     if not shutil.which("ffmpeg"):
@@ -134,16 +156,11 @@ def transcribe(video_id, start_seconds=0, window_seconds=180, language=None):
         run(["ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-ss", str(start_seconds),
              "-i", str(source), "-t", str(window_seconds), "-vn", "-ac", "1", "-ar", "16000",
              "-c:a", "pcm_s16le", str(wav_path)], 120)
-    import mlx_whisper
-
-    model = os.environ.get("DUB_ASR_MODEL", "mlx-community/whisper-small-mlx")
-    options = {"language": language_tag} if language_tag != "auto" else {}
     try:
-        result = mlx_whisper.transcribe(str(wav_path), path_or_hf_repo=model,
-                                       verbose=None, task="transcribe", **options)
+        result = recognise(wav_path, language_tag)
     finally:
         wav_path.unlink(missing_ok=True)
-    language = result.get("language")
+    language = result["language"]
     if language not in LANGUAGES:
         raise DubError("language_unsupported", f"detected {language or 'unknown'}",
                        language=language or "?")
@@ -152,7 +169,7 @@ def transcribe(video_id, start_seconds=0, window_seconds=180, language=None):
                  "text": item["text"].strip()} for item in result["segments"]
                 if item.get("text", "").strip() and item["end"] > item["start"]]
     payload = {"language": language, "segments": segments,
-               "source": "audio-recognition", "model": model,
+               "source": "audio-recognition", "model": result["model"],
                "windowStart": start_seconds, "windowEnd": end_seconds}
     transcript_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return payload

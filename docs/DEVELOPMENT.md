@@ -2,12 +2,14 @@
 
 ## Environment
 
-You need:
+You need macOS (Homebrew) or Linux, with:
 
-- an Apple Silicon Mac with Homebrew;
-- `rust`, `ffmpeg`, `python@3.13`;
-- Node.js ≥ 18, for the extension tests;
+- Rust (`cargo`), `ffmpeg`, Python 3.11–3.14;
+- on Linux and Intel Macs also `cmake` and a C/C++ toolchain, since llama-cpp-python compiles on install;
+- Node.js ≥ 18 and npm, for the tests;
 - `librsvg`, only to rebuild the icons.
+
+On Ubuntu: `sudo apt install cargo ffmpeg cmake build-essential python3-venv python3-dev nodejs npm`.
 
 Deno doesn't need a separate install: it comes into `.venv` from PyPI.
 
@@ -22,7 +24,7 @@ make install    # build the host, write bin/config.json, register with the brows
 
 | Command | What it does |
 |---|---|
-| `make test` | extension tests (`node --test tests/`) and Rust tests (`cargo test`) |
+| `make test` | extension tests (`node --test tests/*.test.js`) and Rust tests (`cargo test`) |
 | `make e2e VIDEO=… START=… PHRASES=… INTO=uk FROM=de` | a run on real YouTube (see below) |
 | `make preview` | the panel in every state and interface language, as PNGs in `.e2e/` |
 | `make icons` | rebuilds the PNG icons from `extension/icons/lion.svg` |
@@ -70,7 +72,7 @@ A test catches any code without a message.
 **Dubbing language.**
 
 1. Add the code to `TARGETS` (`main.rs`, `panel.js`).
-2. Add a default voice to `voice_spec`, to `setup.sh` and to the migration in `install-host-macos.sh`.
+2. Add a default voice to `voice_spec`, to `setup.sh` and to the migration in `install-host.sh`.
 3. Add its name to `target_name` and, if needed, letters for the `wrong_language` check.
 4. Try it with `scripts/probe-host.py --into <code>`.
 
@@ -90,7 +92,11 @@ A test catches any code without a message.
   4. turns translation on through the service worker and prints the panel state every second;
   5. prints the session journal at the end.
 
-  `E2E_CHROME` sets the browser path. YouTube stops playback in an automated browser after about a minute; that is not an extension bug. In that browser the player also requests subtitles for the wrong video, so the subtitle path can only be checked in a regular Chrome.
+  `E2E_CHROME` sets the browser path; by default it is Playwright's own Chromium for the OS (`make e2e` installs it). On a Linux desktop running Wayland, export `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` to see the window. YouTube stops playback in an automated browser after about a minute; that is not an extension bug. In that browser the player also requests subtitles for the wrong video, so the subtitle path can only be checked in a regular Chrome.
+
+## Testing on Linux
+
+A UTM virtual machine with Ubuntu works well: copy the tracked files over (`git ls-files | rsync --files-from=- . vm:project/`), then run `make setup`, `make install`, `make test` and `scripts/probe-host.py --bare-env` inside it. Give the VM at least 8 GB of memory for the browser run: with 5 GB a browser playing YouTube and the 4B model thrash.
 
 ## Debugging
 

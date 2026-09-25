@@ -12,9 +12,9 @@ flowchart LR
     Content -- "Port dub-session" --> BG["background.js<br/>service worker"]
   end
   BG -- "Native Messaging<br/>stdin/stdout" --> Host["local-youtube-dub-host<br/>(Rust)"]
-  Host --> TW["translate_worker.py<br/>Qwen3-4B / MLX"]
+  Host --> TW["translate_worker.py<br/>Qwen3-4B: MLX or llama.cpp"]
   Host --> VW["piper_worker.py<br/>one voice per language"]
-  Host --> ASR["transcribe_video.py<br/>yt-dlp + deno + MLX Whisper"]
+  Host --> ASR["transcribe_video.py<br/>yt-dlp + deno + Whisper"]
   Host -. "translator: ollama" .-> Ollama["Ollama<br/>(optional)"]
 ```
 
@@ -30,7 +30,26 @@ flowchart LR
 | `src/main.rs` | the protocol, translation and voice queues, environment checks, on-demand recognition, error codes | the models themselves |
 | `worker/*.py` | one model per process, loaded for the whole session | the browser protocol |
 
-Python is there because MLX, Piper and yt-dlp only exist in Python. Rust owns the protocol, the queues and isolation: a hung or crashed worker is restarted and the session carries on.
+Python is there because MLX, llama.cpp's binding, faster-whisper, Piper and yt-dlp are Python libraries. Rust owns the protocol, the queues and isolation: a hung or crashed worker is restarted and the session carries on.
+
+## Platforms
+
+The same models run on every platform; only the engines differ.
+
+| | Apple Silicon | Linux, Intel Mac |
+|---|---|---|
+| Translation | MLX, `mlx-community/Qwen3-4B-Instruct-2507-4bit` | llama.cpp, `unsloth/Qwen3-4B-Instruct-2507-GGUF` (Q4_K_M) |
+| Recognition | MLX Whisper small | faster-whisper small, int8 on the CPU |
+| Python packages | `requirements-apple-silicon.txt` | `requirements-cpu.txt` |
+| Browser registration | `~/Library/Application Support/<browser>/NativeMessagingHosts` | `~/.config/<browser>/NativeMessagingHosts`; snap browsers are not supported (see below) |
+
+**Snap browsers.** A snap browser starts the host inside its sandbox, where `/usr` is the snap's own and the project's Python environment (a venv pointing at the system Python) cannot run. The host recognizes this from `SNAP_NAME` and answers `sandboxed_browser`, and `install-host.sh` no longer registers snap Chromium.
+
+**Threads.** The browser decodes the video on the same CPU, so llama.cpp uses two threads fewer than there are cores (at least two; `DUB_LLAMA_THREADS` overrides). On 4 cores with 2 kept busy, 2 threads prepared a phrase in about 3.5 s and 4 threads in about 5.5 s.
+
+The host picks the engines at build time (`cfg!(target_os, target_arch)`), and `translator` and `asr` in `bin/config.json` override them. `setup.sh` installs the matching packages and models.
+
+**Memory on Linux.** On ARM, llama.cpp repacks the weights into a CPU-friendly copy by default: 2.8 GB of anonymous memory the kernel cannot reclaim. On a 5 GB machine that got the host OOM-killed, and since the host runs in the browser's systemd scope, systemd stopped the browser too. `translate_worker.py` therefore turns repacking off (`use_extra_bufts = false`), leaving about 0.4 GB anonymous plus the mapped model file, which is reclaimable page cache. Before recognizing speech the extension also asks the host not to warm the translation model up, so Whisper and the translation model never load at the same time.
 
 ## Languages
 
@@ -164,7 +183,7 @@ The panel is never taller than the window; anything beyond that scrolls inside t
 3. **Speech recognition.** Used when there are no suitable subtitles at all: no English, Spanish or German track, or no track could be loaded.
    - the host downloads the audio track (`yt-dlp`);
    - cuts a 180 s section (`ffmpeg`);
-   - recognizes it with MLX Whisper small.
+   - recognizes it with Whisper small: MLX Whisper on Apple Silicon, faster-whisper elsewhere.
 
    To get the audio URL, yt-dlp has to run YouTube's JavaScript, and for that it needs Deno. Deno is installed into `.venv` with the Python packages, and the host puts `.venv/bin` first on `PATH`. Without Deno YouTube answers `403 Forbidden`.
 

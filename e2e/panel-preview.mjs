@@ -3,13 +3,13 @@
 // YouTube.   node e2e/panel-preview.mjs [en|es|ru|uk ...]
 import { chromium } from "playwright-core";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const executable = process.env.E2E_CHROME || path.join(os.homedir(),
-  "Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing");
+// Playwright's own Chromium for this OS (npx playwright-core install chromium),
+// unless E2E_CHROME names another build that still accepts --load-extension.
+const executable = process.env.E2E_CHROME || chromium.executablePath();
 const scripts = ["i18n.js", "panel.js"].map((file) => fs.readFileSync(path.join(project, "extension", file), "utf8"));
 const icon = "data:image/png;base64," + fs.readFileSync(path.join(project, "extension/icons/lion-48.png")).toString("base64");
 const locales = process.argv.slice(2).length ? process.argv.slice(2) : ["en", "es", "ru", "uk"];
