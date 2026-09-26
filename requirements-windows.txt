@@ -1,0 +1,27 @@
+# Windows, x64 and ARM64. Every package here has wheels for both, so nothing
+# compiles during setup. Translation runs in llama-server and yt-dlp's
+# JavaScript in Deno, both downloaded by scripts/fetch.py; sherpa-onnx plays
+# the Piper voices and runs Whisper.
+#
+# yt-dlp[default] would pull in brotli, which has no ARM64 wheel and would
+# need a C compiler; it only decodes Brotli-compressed responses. So yt-dlp
+# comes without the extra, the rest of the extra is listed here, and
+# setup.ps1 installs the yt-dlp-ejs version the installed yt-dlp pins.
+yt-dlp
+certifi
+mutagen
+pycryptodomex
+requests
+urllib3
+websockets
+sherpa-onnx
+# Adds sherpa-onnx's metadata to Piper voices (sherpa_voice_worker.py).
+onnx
+# Decodes the downloaded audio: there is no ffmpeg to call on Windows.
+av
+numpy
+huggingface_hub
+# Lets scripts/fetch.py check certificates the way Windows does.
+truststore
+# Spells out numbers for letter-based voices (the Ukrainian one).
+num2words

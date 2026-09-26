@@ -108,6 +108,13 @@ for retired in ("voice_backend", "voice_speaker"):
 apple_silicon = platform.system() == "Darwin" and platform.machine() == "arm64"
 if config.get("translator") == "mlx" and not apple_silicon:
     config.pop("translator")
+# A folder moved here from Windows carries its Python path and its engines,
+# which requirements-*.txt don't install on macOS or Linux.
+if config.get("python") == ".venv/Scripts/python.exe":
+    config.pop("python")
+for key in ("asr", "voice_engine"):
+    if config.get(key) == "sherpa":
+        config.pop(key)
 voices.update(config.get("voices", {}))
 config["voices"] = {language: relative(path) for language, path in voices.items()}
 config["voice_speakers"] = {"uk": "mykyta", **config.get("voice_speakers", {})}

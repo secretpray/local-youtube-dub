@@ -4,16 +4,32 @@
 
 ### Added
 
+- **Windows support**, x64 and ARM64, with nothing compiled on the user's machine: `scripts\setup.ps1` and `scripts\install-host.ps1` (Windows PowerShell 5.1, `-ExecutionPolicy Bypass` for the one run). Verified on Windows 11 ARM64 in Parallels; x64 is built by CI only.
+  - Translation runs in **`llama-server`**, llama.cpp's official release build, as a sidecar the host starts on a free loopback port with a per-session API key, and restarts if it dies. New translator backend `llama-server`, usable on macOS and Linux too.
+  - Recognition and voices run on **sherpa-onnx**: Whisper small (int8 ONNX) with Silero VAD, and the same Piper voices, converted for sherpa on first use. Audio is decoded with PyAV, so Windows needs no ffmpeg.
+  - `scripts/fetch.py` downloads llama-server, Deno, espeak-ng data, voices and models, each checked against a pinned SHA-256. On ARM64 processors without int8 matrix multiply (Apple M1 under Parallels, Snapdragon 8cx), where llama.cpp's official ARM64 build dies with an illegal instruction, it takes a baseline build published by this project's CI instead.
+  - The host is registered through the registry for Chrome, Edge, Brave and Chromium, and is built with cargo or downloaded from the release, checked against GitHub's SHA-256.
+  - Workers run in Job Objects: a worker's whole process tree dies with it, and with the host, however the host ends.
+- **CI** (`.github/workflows/ci.yml`): tests and lints on Linux, macOS, Windows x64 and Windows ARM64; tagged releases publish the host for six targets.
+- Messages that tell the viewer to run a command name the command of their own system (`make setup`, `scripts\setup.ps1`, `brew install ffmpeg`, `sudo apt install ffmpeg`). New error `translator_missing`.
+- `scripts/probe-host.py --transcribe VIDEO_ID [--start S]` recognizes one section through the host.
 - **Linux support**, which also covers Intel Macs: translation through llama.cpp (the same Qwen3-4B as GGUF) and recognition through faster-whisper, both on the CPU. Verified on ARM (Ubuntu 26.04 in UTM); x86_64 uses the same packages. `setup.sh` picks the engines and packages by platform (`requirements-apple-silicon.txt`, `requirements-cpu.txt`), and `install-host.sh` (renamed from `install-host-macos.sh`) registers the host with Linux browsers and removes it with `--uninstall`.
 - On the CPU, llama.cpp uses two threads fewer than there are cores, leaving room for the browser to decode the video (`DUB_LLAMA_THREADS` overrides).
 - Python 3.14 is accepted.
 - A snap browser (Ubuntu's Chromium) is detected and reported: its sandbox cannot run the local app, so it is not registered either.
 - `make install` builds and configures the host even when no supported browser is installed.
 
+### Changed
+
+- The host talks to Ollama through a built-in HTTP client instead of starting `curl` for every request.
+- The two voice workers share their protocol and text preparation (`worker/voice_common.py`).
+
 ### Fixed
 
+- **The first phrases of a session could be skipped on slower machines**: their 45 s clock started while the translation model was still loading. The host now answers the status check once the models are loaded.
 - **Model downloads could stall forever** in `make setup` (the Hugging Face Xet backend on a Linux VM). Downloads now use plain HTTP.
 - **On Linux the host could take the browser down with it** when memory ran out: llama.cpp's weight repacking is turned off, and the translation model no longer loads while speech is being recognized.
+- Cancelled speech recognition left its audio clip (about 6 MB) in `cache/` for good. Clips older than an hour are now removed.
 - `make test` failed to start its JavaScript tests on Node 22.
 
 ## 0.3.0 — 25 September 2026

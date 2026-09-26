@@ -1,0 +1,185 @@
+# Tests on every push and pull request, on all three systems. A tag v<version>
+# also publishes the native host for each platform, which install-host.ps1
+# downloads on a Windows machine without Rust. Run by hand with
+# llama_build set, it publishes the Windows ARM64 llama-server for processors
+# the official build can't run on (see scripts/fetch.py).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      llama_build:
+        description: "llama.cpp release to build for older ARM64 processors (LLAMA_BUILD in scripts/fetch.py), e.g. b11193"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    if: github.event_name != 'workflow_dispatch' || inputs.llama_build == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # The Windows on ARM image does not always carry rustup.
+      - name: Install Rust on Windows ARM64
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
+            .\rustup-init.exe -y --profile minimal
+            "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+
+      - name: Rust tests and lints
+        run: |
+          rustup component add clippy
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Extension tests
+        run: node --test tests/extension.test.js
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Python syntax
+        run: python -m compileall -q worker scripts
+
+      # Windows PowerShell 5.1, the one every Windows has, parses the scripts.
+      - name: PowerShell syntax
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem scripts\*.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors)
+            foreach ($problem in $errors) { Write-Host "$($file.Name): $problem"; $failed = $true }
+            if ((Get-Content -Raw $file.FullName) -match '[^\x00-\x7F]') { Write-Host "$($file.Name) is not ASCII"; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+
+  host:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          # The oldest supported Ubuntu: the binary needs a glibc at least as old.
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust on Windows ARM64
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
+            .\rustup-init.exe -y --profile minimal
+            "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+
+      - name: Build
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+          rustup target add ${{ matrix.target }}
+          cargo build --release --locked --target ${{ matrix.target }}
+          suffix=""
+          case "${{ matrix.target }}" in *windows*) suffix=".exe" ;; esac
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/local-youtube-dub-host$suffix" \
+             "dist/local-youtube-dub-host-$version-${{ matrix.target }}$suffix"
+
+      # GitHub records each asset's SHA-256, which install-host.ps1 checks.
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md." || true
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+  # llama.cpp's own Windows ARM64 release step, with one change: armv8.2-a
+  # with dot product and fp16 instead of armv8.7-a, so it runs on Apple M1
+  # under Parallels and on the Snapdragon 8cx family.
+  llama-arm64:
+    if: github.event_name == 'workflow_dispatch' && inputs.llama_build != ''
+    runs-on: windows-2025-vs2026
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: ggml-org/llama.cpp
+          ref: ${{ inputs.llama_build }}
+
+      - name: Install Ninja
+        run: choco install ninja
+
+      - name: Build
+        shell: cmd
+        run: |
+          powershell -NoProfile -Command "(Get-Content cmake\arm64-windows-llvm.cmake) -replace '-march=armv8.7-a', '-march=armv8.2-a+dotprod+fp16' | Set-Content cmake\arm64-windows-baseline.cmake"
+          findstr /c:"armv8.2-a+dotprod+fp16" cmake\arm64-windows-baseline.cmake || exit /b 1
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" amd64_arm64
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -D CMAKE_TOOLCHAIN_FILE=cmake/arm64-windows-baseline.cmake ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CPU_ALL_VARIANTS=OFF ^
+            -DGGML_OPENMP=ON ^
+            -DGGML_OPENMP_FETCH=ON ^
+            -DLLAMA_OPENSSL=OFF ^
+            -DLLAMA_USE_PREBUILT_UI=OFF ^
+            -DLLAMA_BUILD_TESTS=OFF ^
+            -DLLAMA_BUILD_EXAMPLES=OFF
+          cmake --build build --config Release --target llama-server
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ inputs.llama_build }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          Copy-Item LICENSE build\bin\Release\LICENSE-llama.cpp.txt
+          $zip = "llama-$env:BUILD-bin-win-cpu-arm64-armv8.2.zip"
+          Compress-Archive -Path build\bin\Release\* -DestinationPath $zip
+          $tag = "llama-$env:BUILD"
+          gh release view $tag --repo $env:REPOSITORY *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo $env:REPOSITORY --title "llama.cpp $env:BUILD for older ARM64 processors" `
+              --notes "llama.cpp $env:BUILD built for armv8.2-a+dotprod+fp16 by this project's CI. Downloaded by scripts/fetch.py when the processor can't run the official build."
+          }
+          gh release upload $tag $zip --repo $env:REPOSITORY --clobber

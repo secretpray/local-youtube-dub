@@ -64,25 +64,26 @@
       "warn.window": "Section at {time} was not recognized: {reason}",
       "reason.timeout": "no answer in {seconds} s",
       "reason.decode": "the audio could not be read",
-      "error.host_missing": "The local app is not installed. Run make install and restart the browser",
+      "error.host_missing": "The local app is not installed. Run {install} and restart the browser",
       "error.host_exited": "The local app closed unexpectedly",
       "error.connection_lost": "Lost connection to the local app",
       "error.bad_request": "The local app rejected the request",
-      "error.python_missing": "The Python environment was not found. Run make setup",
+      "error.python_missing": "The Python environment was not found. Run {setup}",
       "error.sandboxed_browser": "This browser is a snap and its sandbox can't run the local app. Use Chrome, Brave or Edge installed from a .deb package",
-      "error.translation_model_missing": "The translation model is not downloaded. Run make setup",
+      "error.translation_model_missing": "The translation model is not downloaded. Run {setup}",
+      "error.translator_missing": "The translation engine ({engine}) is not installed. Run {setup}",
       "error.config_invalid": "bin/config.json contains an invalid setting",
       "error.ollama_unreachable": "Ollama is not responding. Start Ollama",
       "error.ollama_model_missing": "Model {model} is not in Ollama. Run: ollama pull {model}",
-      "error.voice_missing": "No voice for {target}. Run make setup",
+      "error.voice_missing": "No voice for {target}. Run {setup}",
       "error.worker_failed": "A local model failed to start",
       "error.worker_timeout": "A local model did not answer in time",
       "error.translation_failed": "the model did not return a usable translation",
       "error.voice_failed": "the voice could not read the phrase",
       "error.voice_empty": "the voice returned no sound",
       "error.recognition_failed": "speech recognition failed",
-      "error.ffmpeg_missing": "ffmpeg was not found. Install it: brew install ffmpeg",
-      "error.js_runtime_missing": "yt-dlp needs deno to download from YouTube. Run make setup",
+      "error.ffmpeg_missing": "ffmpeg was not found. Install it: {ffmpeg}",
+      "error.js_runtime_missing": "yt-dlp needs deno to download from YouTube. Run {setup}",
       "error.youtube_blocked": "YouTube refused the download (bot check). Try again later",
       "error.download_failed": "the video's audio could not be downloaded",
       "error.language_unsupported": "language “{language}” is not supported (English, Spanish, German)",
@@ -145,25 +146,26 @@
       "warn.window": "El tramo en {time} no se reconoció: {reason}",
       "reason.timeout": "sin respuesta en {seconds} s",
       "reason.decode": "no se pudo leer el audio",
-      "error.host_missing": "La aplicación local no está instalada. Ejecuta make install y reinicia el navegador",
+      "error.host_missing": "La aplicación local no está instalada. Ejecuta {install} y reinicia el navegador",
       "error.host_exited": "La aplicación local se cerró inesperadamente",
       "error.connection_lost": "Se perdió la conexión con la aplicación local",
       "error.bad_request": "La aplicación local rechazó la solicitud",
-      "error.python_missing": "No se encontró el entorno de Python. Ejecuta make setup",
+      "error.python_missing": "No se encontró el entorno de Python. Ejecuta {setup}",
       "error.sandboxed_browser": "Este navegador es un snap y su aislamiento no puede ejecutar la aplicación local. Usa Chrome, Brave o Edge instalados desde un paquete .deb",
-      "error.translation_model_missing": "El modelo de traducción no está descargado. Ejecuta make setup",
+      "error.translation_model_missing": "El modelo de traducción no está descargado. Ejecuta {setup}",
+      "error.translator_missing": "El motor de traducción ({engine}) no está instalado. Ejecuta {setup}",
       "error.config_invalid": "bin/config.json contiene un ajuste no válido",
       "error.ollama_unreachable": "Ollama no responde. Inicia Ollama",
       "error.ollama_model_missing": "El modelo {model} no está en Ollama. Ejecuta: ollama pull {model}",
-      "error.voice_missing": "No hay voz para {target}. Ejecuta make setup",
+      "error.voice_missing": "No hay voz para {target}. Ejecuta {setup}",
       "error.worker_failed": "Un modelo local no pudo iniciarse",
       "error.worker_timeout": "Un modelo local no respondió a tiempo",
       "error.translation_failed": "el modelo no devolvió una traducción utilizable",
       "error.voice_failed": "la voz no pudo leer la frase",
       "error.voice_empty": "la voz no devolvió sonido",
       "error.recognition_failed": "falló el reconocimiento de voz",
-      "error.ffmpeg_missing": "No se encontró ffmpeg. Instálalo: brew install ffmpeg",
-      "error.js_runtime_missing": "yt-dlp necesita deno para descargar de YouTube. Ejecuta make setup",
+      "error.ffmpeg_missing": "No se encontró ffmpeg. Instálalo: {ffmpeg}",
+      "error.js_runtime_missing": "yt-dlp necesita deno para descargar de YouTube. Ejecuta {setup}",
       "error.youtube_blocked": "YouTube rechazó la descarga (comprobación anti-bots). Inténtalo más tarde",
       "error.download_failed": "no se pudo descargar el audio del vídeo",
       "error.language_unsupported": "el idioma «{language}» no es compatible (inglés, español, alemán)",
@@ -226,25 +228,26 @@
       "warn.window": "Участок {time} не распознан: {reason}",
       "reason.timeout": "нет ответа {seconds} с",
       "reason.decode": "звук не прочитан",
-      "error.host_missing": "Локальное приложение не установлено. Выполните make install и перезапустите браузер",
+      "error.host_missing": "Локальное приложение не установлено. Выполните {install} и перезапустите браузер",
       "error.host_exited": "Локальное приложение неожиданно закрылось",
       "error.connection_lost": "Связь с локальным приложением потеряна",
       "error.bad_request": "Локальное приложение отклонило запрос",
-      "error.python_missing": "Не найдено окружение Python. Выполните make setup",
+      "error.python_missing": "Не найдено окружение Python. Выполните {setup}",
       "error.sandboxed_browser": "Этот браузер установлен как snap, и его песочница не может запустить локальное приложение. Используйте Chrome, Brave или Edge из пакета .deb",
-      "error.translation_model_missing": "Модель перевода не скачана. Выполните make setup",
+      "error.translation_model_missing": "Модель перевода не скачана. Выполните {setup}",
+      "error.translator_missing": "Движок перевода ({engine}) не установлен. Выполните {setup}",
       "error.config_invalid": "В bin/config.json неверная настройка",
       "error.ollama_unreachable": "Ollama не отвечает. Запустите Ollama",
       "error.ollama_model_missing": "Модели {model} нет в Ollama. Выполните: ollama pull {model}",
-      "error.voice_missing": "Нет голоса для языка «{target}». Выполните make setup",
+      "error.voice_missing": "Нет голоса для языка «{target}». Выполните {setup}",
       "error.worker_failed": "Локальная модель не запустилась",
       "error.worker_timeout": "Локальная модель не ответила вовремя",
       "error.translation_failed": "модель не вернула пригодный перевод",
       "error.voice_failed": "голос не смог прочитать фразу",
       "error.voice_empty": "голос вернул пустой звук",
       "error.recognition_failed": "распознавание речи не удалось",
-      "error.ffmpeg_missing": "Не найден ffmpeg. Установите: brew install ffmpeg",
-      "error.js_runtime_missing": "yt-dlp нужен deno для скачивания с YouTube. Выполните make setup",
+      "error.ffmpeg_missing": "Не найден ffmpeg. Установите: {ffmpeg}",
+      "error.js_runtime_missing": "yt-dlp нужен deno для скачивания с YouTube. Выполните {setup}",
       "error.youtube_blocked": "YouTube отказал в скачивании (проверка на бота). Попробуйте позже",
       "error.download_failed": "не удалось скачать звук ролика",
       "error.language_unsupported": "язык «{language}» не поддерживается (английский, испанский, немецкий)",
@@ -307,25 +310,26 @@
       "warn.window": "Ділянку {time} не розпізнано: {reason}",
       "reason.timeout": "немає відповіді {seconds} с",
       "reason.decode": "звук не прочитано",
-      "error.host_missing": "Локальний застосунок не встановлено. Виконайте make install і перезапустіть браузер",
+      "error.host_missing": "Локальний застосунок не встановлено. Виконайте {install} і перезапустіть браузер",
       "error.host_exited": "Локальний застосунок несподівано закрився",
       "error.connection_lost": "Зв'язок із локальним застосунком втрачено",
       "error.bad_request": "Локальний застосунок відхилив запит",
-      "error.python_missing": "Не знайдено середовище Python. Виконайте make setup",
+      "error.python_missing": "Не знайдено середовище Python. Виконайте {setup}",
       "error.sandboxed_browser": "Цей браузер встановлено як snap, і його пісочниця не може запустити локальний застосунок. Використовуйте Chrome, Brave або Edge з пакета .deb",
-      "error.translation_model_missing": "Модель перекладу не завантажено. Виконайте make setup",
+      "error.translation_model_missing": "Модель перекладу не завантажено. Виконайте {setup}",
+      "error.translator_missing": "Рушій перекладу ({engine}) не встановлено. Виконайте {setup}",
       "error.config_invalid": "У bin/config.json хибне налаштування",
       "error.ollama_unreachable": "Ollama не відповідає. Запустіть Ollama",
       "error.ollama_model_missing": "Моделі {model} немає в Ollama. Виконайте: ollama pull {model}",
-      "error.voice_missing": "Немає голосу для мови «{target}». Виконайте make setup",
+      "error.voice_missing": "Немає голосу для мови «{target}». Виконайте {setup}",
       "error.worker_failed": "Локальна модель не запустилася",
       "error.worker_timeout": "Локальна модель не відповіла вчасно",
       "error.translation_failed": "модель не повернула придатний переклад",
       "error.voice_failed": "голос не зміг прочитати фразу",
       "error.voice_empty": "голос повернув порожній звук",
       "error.recognition_failed": "розпізнавання мовлення не вдалося",
-      "error.ffmpeg_missing": "Не знайдено ffmpeg. Встановіть: brew install ffmpeg",
-      "error.js_runtime_missing": "yt-dlp потрібен deno для завантаження з YouTube. Виконайте make setup",
+      "error.ffmpeg_missing": "Не знайдено ffmpeg. Встановіть: {ffmpeg}",
+      "error.js_runtime_missing": "yt-dlp потрібен deno для завантаження з YouTube. Виконайте {setup}",
       "error.youtube_blocked": "YouTube відмовив у завантаженні (перевірка на бота). Спробуйте пізніше",
       "error.download_failed": "не вдалося завантажити звук відео",
       "error.language_unsupported": "мова «{language}» не підтримується (англійська, іспанська, німецька)",
@@ -342,27 +346,45 @@
     return "en";
   }
 
-  // Params named after languages are shown as that language's own name.
-  function format(template, params = {}) {
+  // Commands a message asks the viewer to run, spelled for their system.
+  const COMMANDS = {
+    mac: { setup: "make setup", install: "make install", ffmpeg: "brew install ffmpeg" },
+    linux: { setup: "make setup", install: "make install", ffmpeg: "sudo apt install ffmpeg" },
+    windows: { setup: "scripts\\setup.ps1", install: "scripts\\install-host.ps1", ffmpeg: "winget install Gyan.FFmpeg" },
+  };
+
+  // The system the browser runs on: userAgentData in Chromium, the older
+  // navigator.platform otherwise ("Win32", "MacIntel", "Linux x86_64").
+  function currentPlatform(nav = globalThis.navigator) {
+    const name = String(nav?.userAgentData?.platform || nav?.platform || "").toLowerCase();
+    if (name.startsWith("win")) return "windows";
+    if (name.startsWith("mac") || name === "darwin") return "mac";
+    return "linux";
+  }
+
+  // Params named after languages are shown as that language's own name; a
+  // command placeholder the params don't fill comes from COMMANDS.
+  function format(template, params = {}, platform = currentPlatform()) {
+    const commands = COMMANDS[platform] || COMMANDS.linux;
     return template.replace(/\{(\w+)\}/g, (match, name) => {
-      if (!(name in params)) return match;
+      if (!(name in params)) return name in commands ? commands[name] : match;
       const value = params[name];
       return (name === "target" || name === "language") && ENDONYMS[value] ? ENDONYMS[value] : String(value);
     });
   }
 
-  function translator(locale) {
+  function translator(locale, platform = currentPlatform()) {
     const messages = MESSAGES[locale] || MESSAGES.en;
     function t(key, params, fallback) {
       const template = messages[key] ?? MESSAGES.en[key];
       if (template == null) return fallback ?? key;
-      return format(template, params);
+      return format(template, params, platform);
     }
     t.has = (key) => key in messages;
     return t;
   }
 
-  const api = { LOCALES, ENDONYMS, MESSAGES, browserLocale, format, translator };
+  const api = { LOCALES, ENDONYMS, MESSAGES, COMMANDS, browserLocale, currentPlatform, format, translator };
   root.DubI18n = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : self);

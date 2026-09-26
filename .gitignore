@@ -2,13 +2,17 @@
 /target/
 /bin/
 
-# Local environment, models and caches (make setup recreates them)
+# Local environment, models, caches and downloaded engines (setup recreates them)
 /.venv/
 /voices/
 /cache/
+/tools/
 **/__pycache__/
 
 # End-to-end tooling and local scratch (browser profile, screenshots, keys)
 /.e2e/
 /e2e/node_modules/
 .DS_Store
+
+# Working plans for the next steps; not part of the project
+/.plans/

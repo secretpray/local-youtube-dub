@@ -2,24 +2,30 @@
 //! into Russian or Ukrainian, voices them, and transcribes videos that have no
 //! subtitles.
 //!
-//! Every model runs in a long-lived Python worker next to this binary
-//! (`worker/*.py`), so it is loaded once per browser session. Paths in
-//! `bin/config.json` are relative to the project folder, which makes the
-//! folder itself portable: move it, run `make install`, done.
+//! Every model runs in a long-lived process next to this binary, a Python
+//! worker (`worker/*.py`) or `llama-server`, so it is loaded once per browser
+//! session. Paths in `bin/config.json` are relative to the project folder,
+//! which makes the folder itself portable: move it, run the install again, done.
 //!
 //! Errors carry a `code` the extension turns into a message in the viewer's
 //! language, and an English `error` detail for the session journal.
 
+mod llama_server;
+mod local_http;
+mod process_tree;
+
 use base64::{engine::general_purpose::STANDARD, Engine};
+use llama_server::{Launch, LlamaServer};
+use local_http::HttpError;
+use process_tree::ProcessTree;
 use serde_json::{json, Value};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
@@ -43,6 +49,13 @@ const WORKER_CALL_TIMEOUT: Duration = Duration::from_secs(40);
 fn main() {
     extend_path();
     env::set_var("HF_HOME", project_dir().join("cache").join("huggingface"));
+    if cfg!(windows) {
+        // Python on Windows reads and writes pipes in the ANSI code page, which
+        // has no Cyrillic in most locales: the JSON lines carrying a Russian
+        // translation arrived as "?????" or failed to encode at all.
+        env::set_var("PYTHONUTF8", "1");
+        env::set_var("PYTHONIOENCODING", "utf-8");
+    }
     // Native Messaging reserves stdout for length-prefixed JSON messages.
     let mut input = io::stdin().lock();
     let (output_tx, output_rx) = mpsc::channel::<Value>();
@@ -64,7 +77,7 @@ fn main() {
             let job = match job {
                 // Warm-up only loads the voice, so the first phrase does not
                 // pay for model start-up.
-                Job::Warm(target) => {
+                Job::Warm(target, _done) => {
                     if let Entry::Vacant(slot) = voices.entry(target) {
                         if let Ok(voice) = start_voice(slot.key()) {
                             slot.insert(voice);
@@ -95,7 +108,7 @@ fn main() {
         let mut llm = Translator::default();
         for job in translate_rx {
             let job = match job {
-                Job::Warm(_) => {
+                Job::Warm(_, _done) => {
                     llm.warm();
                     continue;
                 }
@@ -161,13 +174,24 @@ fn main() {
                 // ran a 5 GB machine out of memory.
                 let warm = request.get("warm").and_then(Value::as_bool) != Some(false);
                 match preflight(&target) {
-                    Ok(result) => {
-                        if warm {
-                            let _ = translate_tx.send(Job::Warm(target.clone()));
-                            let _ = synth_tx.send(Job::Warm(target));
-                        }
-                        Some(json!({"id": id, "ok": true, "result": result}))
+                    Ok(result) if warm => {
+                        // The answer waits for both models: the extension
+                        // starts each phrase's 45 s clock as soon as it has
+                        // it, and a model still loading on a slow machine
+                        // made the first phrases miss that deadline. A
+                        // thread waits, so requests keep being read.
+                        let (done_tx, done_rx) = mpsc::channel::<()>();
+                        let _ = translate_tx.send(Job::Warm(target.clone(), done_tx.clone()));
+                        let _ = synth_tx.send(Job::Warm(target, done_tx));
+                        let output = output_tx.clone();
+                        thread::spawn(move || {
+                            // Ends once both warm-ups have dropped their sender.
+                            while done_rx.recv().is_ok() {}
+                            let _ = output.send(json!({"id": id, "ok": true, "result": result}));
+                        });
+                        None
                     }
+                    Ok(result) => Some(json!({"id": id, "ok": true, "result": result})),
                     Err(failure) => Some(failure.response(id)),
                 }
             }
@@ -216,8 +240,9 @@ fn main() {
 }
 
 enum Job<T> {
-    /// Load models for this target language ahead of the first phrase.
-    Warm(String),
+    /// Load models for this target language ahead of the first phrase; the
+    /// sender is dropped once they are loaded (or failed to load).
+    Warm(String, mpsc::Sender<()>),
     Work(T),
 }
 
@@ -262,22 +287,32 @@ impl Failure {
 
 /// The browser starts the host with the bare system PATH, which on macOS does
 /// not include Homebrew: ffmpeg would be found from a terminal and missing
-/// under Chrome. The project's own environment comes first, because that is
-/// where yt-dlp finds deno, its JavaScript runtime for YouTube.
+/// under Chrome. The project's own tools come first, because that is where
+/// yt-dlp finds deno, its JavaScript runtime for YouTube: in the Python
+/// environment on macOS and Linux, in `tools/deno` on Windows.
 fn extend_path() {
-    let current = env::var("PATH").unwrap_or_default();
-    let mut parts: Vec<String> = Vec::new();
+    let current = env::var_os("PATH").unwrap_or_default();
+    let mut parts: Vec<PathBuf> = Vec::new();
+    let mut add = |part: PathBuf| {
+        if !part.as_os_str().is_empty() && !parts.contains(&part) {
+            parts.push(part);
+        }
+    };
     if let Some(bin) = python().parent() {
-        parts.push(bin.to_string_lossy().into_owned());
+        add(bin.to_path_buf());
     }
-    parts.extend(current.split(':').filter(|part| !part.is_empty()).map(str::to_owned));
-    for extra in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
-        if !parts.iter().any(|part| part == extra) {
-            parts.push(extra.to_owned());
+    if cfg!(windows) {
+        add(project_dir().join("tools").join("deno"));
+    }
+    env::split_paths(&current).for_each(&mut add);
+    if cfg!(unix) {
+        for extra in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+            add(PathBuf::from(extra));
         }
     }
-    parts.dedup();
-    env::set_var("PATH", parts.join(":"));
+    if let Ok(joined) = env::join_paths(parts) {
+        env::set_var("PATH", joined);
+    }
 }
 
 /// The project folder: the binary lives in `<project>/bin/`.
@@ -318,7 +353,12 @@ fn path_setting(variable: &str, key: &str, default: &str) -> PathBuf {
 }
 
 fn python() -> PathBuf {
-    path_setting("DUB_PYTHON", "/python", ".venv/bin/python")
+    let default = if cfg!(windows) {
+        ".venv/Scripts/python.exe"
+    } else {
+        ".venv/bin/python"
+    };
+    path_setting("DUB_PYTHON", "/python", default)
 }
 
 fn target_of(request: &Value) -> String {
@@ -497,7 +537,7 @@ fn write_frame(output: &mut impl Write, encoded: &[u8]) -> io::Result<()> {
 /// A long-lived Python worker speaking JSON lines. It announces itself with
 /// `{"ready": true}` (or `{"error": ...}`) once its model is loaded.
 struct LineWorker {
-    process: Child,
+    tree: ProcessTree,
     input: ChildStdin,
     output: BufReader<ChildStdout>,
 }
@@ -508,21 +548,21 @@ impl LineWorker {
         if !path.is_file() {
             return Err(Failure::new("worker_failed", format!("{} not found", path.display())));
         }
-        let mut process = Command::new(python())
+        let mut command = Command::new(python());
+        command
             .arg(&path)
             .args(args)
-            // Own process group, so the watchdog can kill the worker together
-            // with anything it started that still holds the pipe open.
-            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
+            .stderr(Stdio::inherit());
+        // A tree, so the watchdog kills the worker together with anything it
+        // started that still holds the pipe open.
+        let mut tree = process_tree::spawn(&mut command)
             .map_err(|error| Failure::new("worker_failed", format!("{script}: {error}")))?;
-        let input = process.stdin.take().expect("piped stdin");
-        let output = BufReader::new(process.stdout.take().expect("piped stdout"));
+        let input = tree.child().stdin.take().expect("piped stdin");
+        let output = BufReader::new(tree.child().stdout.take().expect("piped stdout"));
         let mut worker = Self {
-            process,
+            tree,
             input,
             output,
         };
@@ -548,14 +588,14 @@ impl LineWorker {
     /// worker would otherwise block its queue for the rest of the session;
     /// killed, it answers with EOF and is restarted on the next phrase.
     fn read_within(&mut self, limit: Duration) -> Result<Value, Failure> {
-        let pid = self.process.id();
+        let killer = self.tree.killer();
         let fired = Arc::new(AtomicBool::new(false));
         let fired_in_watchdog = fired.clone();
         let (done_tx, done_rx) = mpsc::channel::<()>();
         let watchdog = thread::spawn(move || {
             if done_rx.recv_timeout(limit) == Err(mpsc::RecvTimeoutError::Timeout) {
                 fired_in_watchdog.store(true, Ordering::SeqCst);
-                kill_group(pid);
+                killer.kill();
             }
         });
         let result = self.read();
@@ -586,19 +626,8 @@ impl LineWorker {
 
 impl Drop for LineWorker {
     fn drop(&mut self) {
-        kill_group(self.process.id());
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        self.tree.kill();
     }
-}
-
-/// Kills a worker's whole process group. The group may already be gone,
-/// which is fine and not worth a line on stderr.
-fn kill_group(pid: u32) {
-    let _ = Command::new("kill")
-        .args(["-9", &format!("-{pid}")])
-        .stderr(Stdio::null())
-        .status();
 }
 
 /// Where a target language's Piper voice lives, and which of its speakers.
@@ -619,12 +648,20 @@ fn voice_spec(target: &str) -> VoiceSpec {
     }
 }
 
+/// `piper` (piper-tts), or `sherpa` (sherpa-onnx) on Windows, where piper-tts
+/// has no ARM64 wheels. Both play the same Piper voice files.
+fn voice_engine() -> String {
+    let default = if cfg!(windows) { "sherpa" } else { "piper" };
+    setting("DUB_VOICE_ENGINE", "/voice_engine", default)
+}
+
 fn start_voice(target: &str) -> Result<LineWorker, Failure> {
     let spec = voice_spec(target);
-    LineWorker::start(
-        "piper_worker.py",
-        &[spec.path.to_string_lossy().into_owned(), spec.speaker],
-    )
+    let script = match voice_engine().as_str() {
+        "sherpa" => "sherpa_voice_worker.py",
+        _ => "piper_worker.py",
+    };
+    LineWorker::start(script, &[spec.path.to_string_lossy().into_owned(), spec.speaker])
 }
 
 fn synthesize(
@@ -696,7 +733,7 @@ fn wrong_language(text: &str, target: &str) -> bool {
 }
 
 /// MLX exists only on Apple Silicon; every other platform runs the same models
-/// through llama.cpp (translation) and faster-whisper (recognition).
+/// through llama.cpp (translation) and Whisper on the CPU (recognition).
 fn apple_silicon() -> bool {
     cfg!(all(target_os = "macos", target_arch = "aarch64"))
 }
@@ -704,33 +741,54 @@ fn apple_silicon() -> bool {
 #[derive(Default)]
 struct Translator {
     worker: Option<LineWorker>,
+    server: Option<LlamaServer>,
 }
 
 impl Translator {
-    /// `mlx`, `llama` or `ollama`.
+    /// `mlx`, `llama` (llama-cpp-python), `llama-server` or `ollama`.
     fn backend() -> String {
-        let default = if apple_silicon() { "mlx" } else { "llama" };
+        let default = if apple_silicon() {
+            "mlx"
+        } else if cfg!(windows) {
+            "llama-server"
+        } else {
+            "llama"
+        };
         setting("DUB_TRANSLATOR", "/translator", default)
     }
 
-    /// The model for a worker-based backend: an MLX repository, or a GGUF
-    /// file as `org/repo/file` or a local path.
+    /// The model for a local backend: an MLX repository, or a GGUF file as
+    /// `org/repo/file` or a local path.
     fn model(backend: &str) -> String {
         match backend {
-            "llama" => setting("DUB_LLAMA_MODEL", "/llama_model", DEFAULT_LLAMA_MODEL),
+            "llama" | "llama-server" => {
+                setting("DUB_LLAMA_MODEL", "/llama_model", DEFAULT_LLAMA_MODEL)
+            }
             _ => setting("DUB_MLX_MODEL", "/mlx_model", DEFAULT_MLX_MODEL),
         }
     }
 
     fn warm(&mut self) {
-        if Self::backend() != "ollama" && self.worker.is_none() {
-            self.worker = start_translator().ok();
+        match Self::backend().as_str() {
+            "ollama" => {}
+            "llama-server" => {
+                if self.server.is_none() {
+                    self.server = start_llama_server().ok();
+                }
+            }
+            _ => {
+                if self.worker.is_none() {
+                    self.worker = start_translator().ok();
+                }
+            }
         }
     }
 
     fn complete(&mut self, system: &str, prompt: &str, temperature: f64) -> Result<String, Failure> {
-        if Self::backend() == "ollama" {
-            return ollama_complete(system, prompt, temperature);
+        match Self::backend().as_str() {
+            "ollama" => return ollama_complete(system, prompt, temperature),
+            "llama-server" => return self.complete_on_server(system, prompt, temperature),
+            _ => {}
         }
         if self.worker.is_none() {
             self.worker = Some(start_translator()?);
@@ -746,6 +804,24 @@ impl Translator {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_owned())
+    }
+
+    fn complete_on_server(
+        &mut self,
+        system: &str,
+        prompt: &str,
+        temperature: f64,
+    ) -> Result<String, Failure> {
+        if !self.server.as_mut().is_some_and(LlamaServer::alive) {
+            self.server = Some(start_llama_server()?);
+        }
+        let server = self.server.as_mut().expect("server just started");
+        let result = server.complete(system, prompt, temperature, 240, WORKER_CALL_TIMEOUT);
+        if result.is_err() {
+            // Dropping the server kills it; the next phrase starts a fresh one.
+            self.server = None;
+        }
+        result
     }
 
     fn translate(&mut self, job: &TranslationJob) -> Result<String, Failure> {
@@ -788,9 +864,51 @@ fn start_translator() -> Result<LineWorker, Failure> {
     )
 }
 
-/// `mlx` (MLX Whisper) on Apple Silicon, `faster-whisper` elsewhere.
+/// `tools/llama/llama-server`, from the llama.cpp release setup downloads.
+fn llama_server_binary() -> PathBuf {
+    let default = if cfg!(windows) {
+        "tools/llama/llama-server.exe"
+    } else {
+        "tools/llama/llama-server"
+    };
+    path_setting("DUB_LLAMA_SERVER", "/llama_server", default)
+}
+
+fn start_llama_server() -> Result<LlamaServer, Failure> {
+    let model = Translator::model("llama-server");
+    let path = gguf_file(&model).ok_or_else(|| {
+        Failure::new("translation_model_missing", model.clone()).with("model", model.clone())
+    })?;
+    // Two threads fewer than the cores, as in translate_worker.py: the
+    // browser decodes the video on the same CPU, and threads fighting it for
+    // cores lose to fewer threads.
+    let cores = thread::available_parallelism().map_or(4, usize::from);
+    let threads = env::var("DUB_LLAMA_THREADS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_else(|| cores.saturating_sub(2).max(2));
+    LlamaServer::start(
+        Launch {
+            binary: &llama_server_binary(),
+            model: &path,
+            threads,
+            repack: env::var("DUB_LLAMA_REPACK").as_deref() == Ok("1"),
+            log: project_dir().join("cache").join("llama-server.log"),
+        },
+        WORKER_START_TIMEOUT,
+    )
+}
+
+/// `mlx` (MLX Whisper) on Apple Silicon, `sherpa` (sherpa-onnx) on Windows,
+/// `faster-whisper` elsewhere.
 fn asr_engine() -> String {
-    let default = if apple_silicon() { "mlx" } else { "faster-whisper" };
+    let default = if apple_silicon() {
+        "mlx"
+    } else if cfg!(windows) {
+        "sherpa"
+    } else {
+        "faster-whisper"
+    };
     setting("DUB_ASR_ENGINE", "/asr", default)
 }
 
@@ -805,6 +923,33 @@ fn model_present(model: &str, gguf: bool) -> bool {
         .join("cache/huggingface/hub")
         .join(format!("models--{}", repo.replace('/', "--")))
         .is_dir()
+}
+
+/// A GGUF model as a file: a path (absolute or from the project folder), or
+/// `org/repo/file` in the project's Hugging Face cache. Any snapshot holding
+/// the file will do: setup downloads a pinned revision, which leaves no
+/// `refs/main` behind.
+fn gguf_file(model: &str) -> Option<PathBuf> {
+    let direct = PathBuf::from(model);
+    for candidate in [direct.clone(), project_dir().join(&direct)] {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let (repo, file) = model.rsplit_once('/')?;
+    let hub = project_dir()
+        .join("cache/huggingface/hub")
+        .join(format!("models--{}", repo.replace('/', "--")));
+    let named = fs::read_to_string(hub.join("refs/main"))
+        .ok()
+        .map(|revision| hub.join("snapshots").join(revision.trim()).join(file));
+    named.filter(|path| path.is_file()).or_else(|| {
+        fs::read_dir(hub.join("snapshots"))
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join(file))
+            .find(|path| path.is_file())
+    })
 }
 
 fn ollama_endpoint() -> Result<String, Failure> {
@@ -833,28 +978,9 @@ fn ollama_complete(system: &str, prompt: &str, temperature: f64) -> Result<Strin
         "think": false,
         "options": {"temperature": temperature, "num_predict": 240}
     });
-    let process = Command::new("curl")
-        .args([
-            "--silent",
-            "--show-error",
-            "--fail",
-            "--max-time",
-            "90",
-            "--header",
-            "Content-Type: application/json",
-            "--data-binary",
-            "@-",
-            &ollama_endpoint()?,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| Failure::new("ollama_unreachable", format!("curl: {error}")))?;
-    let response = finish_with_input(process, body.to_string().as_bytes())
-        .map_err(|detail| Failure::new("ollama_unreachable", detail))?;
-    let parsed: Value = serde_json::from_slice(&response)
-        .map_err(|error| Failure::new("translation_failed", format!("ollama answer: {error}")))?;
+    let agent = local_http::agent(Duration::from_secs(90));
+    let parsed =
+        local_http::post_json(&agent, &ollama_endpoint()?, &body, None).map_err(ollama_failure)?;
     Ok(parsed
         .get("response")
         .and_then(Value::as_str)
@@ -913,19 +1039,41 @@ fn preflight(target: &str) -> Result<Value, Failure> {
                     .with("model", model));
             }
         }
+        "llama-server" => {
+            let binary = llama_server_binary();
+            if !binary.is_file() {
+                return Err(Failure::new("translator_missing", binary.display().to_string())
+                    .with("engine", "llama-server"));
+            }
+            let model = Translator::model(&translator);
+            if gguf_file(&model).is_none() {
+                return Err(Failure::new("translation_model_missing", model.clone())
+                    .with("model", model));
+            }
+        }
         "ollama" => ollama_preflight()?,
         other => {
             return Err(Failure::new("config_invalid", format!("unknown translator {other}")))
         }
     }
     let voice = voice_spec(target);
-    let present = voice.path.is_file()
-        && PathBuf::from(format!("{}.json", voice.path.display())).is_file();
-    if !present {
+    let config = PathBuf::from(format!("{}.json", voice.path.display()));
+    if !voice.path.is_file() || !config.is_file() {
         return Err(Failure::new("voice_missing", voice.path.display().to_string())
             .with("target", target));
     }
-    let found = |program: &str| Command::new(program).arg("--version").output().is_ok();
+    // sherpa-onnx reads espeak's dictionaries from the project; piper-tts
+    // carries its own. A voice trained on letters needs neither.
+    let espeak = project_dir().join("voices/espeak-ng-data");
+    if voice_engine() == "sherpa" && !reads_letters(&config) && !espeak.join("phontab").is_file() {
+        return Err(Failure::new("voice_missing", espeak.display().to_string())
+            .with("target", target));
+    }
+    let found = |program: &str| {
+        process_tree::quiet(Command::new(program).arg("--version"))
+            .output()
+            .is_ok()
+    };
     Ok(json!({
         "translator": translator,
         "voice": voice.path.file_name().map(|name| name.to_string_lossy().into_owned()),
@@ -934,18 +1082,25 @@ fn preflight(target: &str) -> Result<Value, Failure> {
     }))
 }
 
+/// Whether a Piper voice is trained on letters rather than espeak phonemes.
+fn reads_letters(config: &Path) -> bool {
+    fs::read(config)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|value| value.get("phoneme_type").and_then(Value::as_str) == Some("text"))
+}
+
+fn ollama_failure(error: HttpError) -> Failure {
+    match error {
+        HttpError::Timeout => Failure::new("ollama_unreachable", "Ollama did not answer in time"),
+        HttpError::Other(detail) => Failure::new("ollama_unreachable", detail),
+    }
+}
+
 fn ollama_preflight() -> Result<(), Failure> {
     let tags = ollama_endpoint()?.replace("/api/generate", "/api/tags");
-    let process = Command::new("curl")
-        .args(["--silent", "--show-error", "--fail", "--max-time", "5", &tags])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| Failure::new("ollama_unreachable", format!("curl: {error}")))?;
-    let response = finish_with_input(process, b"")
-        .map_err(|detail| Failure::new("ollama_unreachable", detail))?;
-    let parsed: Value = serde_json::from_slice(&response)
-        .map_err(|_| Failure::new("ollama_unreachable", "bad model list"))?;
+    let agent = local_http::agent(Duration::from_secs(5));
+    let parsed = local_http::get_json(&agent, &tags).map_err(ollama_failure)?;
     let model = setting("DUB_OLLAMA_MODEL", "/ollama_model", DEFAULT_OLLAMA_MODEL);
     let found = parsed
         .get("models")
@@ -977,36 +1132,41 @@ fn transcribe_video(job: &TranscriptionJob, cancel: mpsc::Receiver<()>) -> Resul
         let _ = fs::remove_file(&stdout_path);
         let _ = fs::remove_file(&stderr_path);
     };
-    let mut child = Command::new(python())
+    let mut command = Command::new(python());
+    command
         .arg(script)
         .arg(&job.video_id)
         .arg(job.start.to_string())
         .arg(job.window.to_string())
         .arg(&job.language)
         .env("DUB_ASR_ENGINE", asr_engine())
-        .process_group(0)
+        // Never the host's own stdin, the browser's pipe: the host's main
+        // thread sits in a synchronous read on it, and Windows serialises
+        // every operation on that handle, so Python's start-up check of its
+        // stdin waited for the browser's next message. The recognition hung
+        // until a phrase request happened to arrive, or for good.
+        .stdin(Stdio::null())
         .stdout(Stdio::from(stdout))
-        .stderr(Stdio::from(stderr))
-        .spawn()
-        .map_err(|error| failed(format!("spawn: {error}")))?;
+        .stderr(Stdio::from(stderr));
+    let mut tree =
+        process_tree::spawn(&mut command).map_err(|error| failed(format!("spawn: {error}")))?;
     let status = loop {
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| failed(error.to_string()))?
-        {
+        if let Some(status) = tree.try_wait().map_err(|error| failed(error.to_string()))? {
             break status;
         }
         match cancel.recv_timeout(Duration::from_millis(200)) {
             Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                // yt-dlp and ffmpeg run as children of the script: stop them too.
-                kill_group(child.id());
-                let _ = child.wait();
+                // yt-dlp, Deno and ffmpeg run under the script: stop them too.
+                drop(tree);
                 cleanup();
                 return Err(Failure::new("cancelled", "transcription cancelled"));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     };
+    // Ends anything the script left running, which on Windows would also keep
+    // the answer files locked against the cleanup below.
+    drop(tree);
     let stdout = fs::read(&stdout_path).map_err(|error| failed(error.to_string()))?;
     let stderr = fs::read_to_string(&stderr_path).unwrap_or_default();
     cleanup();
@@ -1034,21 +1194,6 @@ fn transcribe_video(job: &TranscriptionJob, cancel: mpsc::Receiver<()>) -> Resul
         return Err(failed("no segments".into()));
     }
     Ok(parsed)
-}
-
-fn finish_with_input(mut process: Child, input: &[u8]) -> Result<Vec<u8>, String> {
-    if let Some(mut stdin) = process.stdin.take() {
-        stdin
-            .write_all(input)
-            .map_err(|error| format!("write: {error}"))?;
-    }
-    let output = process
-        .wait_with_output()
-        .map_err(|error| format!("wait: {error}"))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-    }
-    Ok(output.stdout)
 }
 
 #[cfg(test)]
