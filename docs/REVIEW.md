@@ -175,8 +175,8 @@ Verified besides: killing the host with `TerminateProcess`, as Chrome does, took
 
 **Open on Windows:**
 
-- **x64 was not run.** Same code, packages and pinned builds, compiled and tested only by CI, which has not run yet.
-- **The project's own builds don't exist yet.** Until the first tagged release and the `llama-arm64` run, `install-host.ps1` needs Rust, and a processor without int8 matrix multiply needs llama-server built by hand ([DEVELOPMENT.md](DEVELOPMENT.md#llama-server-for-older-arm-processors)).
+- **x64 was not run.** Same code, packages and pinned builds; CI compiles it and runs the tests on Windows x64, nothing more.
+- **The host is not released yet.** Until the first tagged release, `install-host.ps1` needs Rust. The ARM64 llama-server for older processors is published (`llama-b11193`, built by the `llama-arm64` job) and was checked on the VM: setup downloaded it against its pinned SHA-256, and translation into Russian and Ukrainian ran on it.
 - **Chrome was not tried with the extension.** Google Chrome no longer loads an unpacked extension from the command line, so it takes the manual steps from the README; Edge, the same Chromium, was run end to end. Nobody listened to the sound on Windows: the checks are the voice's output recognized back, and the session journal.
 - **Unsigned programs.** Neither the host nor the downloaded engines are code-signed (code signing is out of scope). Files the scripts create carry no mark of the web, so SmartScreen doesn't stop them.
 - **Recognition of an unsupported language** decodes the whole section before saying so (60 s on the VM); the language could be decided from the first stretches of speech.

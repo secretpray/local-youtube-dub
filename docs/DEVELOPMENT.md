@@ -132,7 +132,7 @@ Give the VM 8 GB of memory, as the README asks of any machine. With 6 GB the ses
 
 ### llama-server for older ARM processors
 
-If the processor can't run llama.cpp's official ARM64 build (see [Windows in ARCHITECTURE.md](ARCHITECTURE.md#windows)) and the project's own build is not published for the pinned llama.cpp release yet, build it the same way. With Visual Studio Build Tools including the C++ Clang compiler and CMake (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`, `Microsoft.VisualStudio.Component.VC.CMake.Project`), in the llama.cpp checkout of the release named `LLAMA_BUILD` in `scripts/fetch.py`:
+If the processor can't run llama.cpp's official ARM64 build (see [Windows in ARCHITECTURE.md](ARCHITECTURE.md#windows)) and `LLAMA_BASELINE` in `scripts/fetch.py` has no build for the pinned llama.cpp release yet, build it the same way. With Visual Studio Build Tools including the C++ Clang compiler and CMake (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`, `Microsoft.VisualStudio.Component.VC.CMake.Project`), in the llama.cpp checkout of the release named `LLAMA_BUILD` in `scripts/fetch.py`:
 
 ```bat
 powershell -Command "(Get-Content cmake\arm64-windows-llvm.cmake) -replace '-march=armv8.7-a', '-march=armv8.2-a+dotprod+fp16' | Set-Content cmake\arm64-windows-baseline.cmake"
@@ -141,7 +141,7 @@ cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_TOOLCHAIN_FILE
 cmake --build build --target llama-server
 ```
 
-Copy `build\bin\*` into a folder of the project other than `tools\llama` (setup replaces that one), say `tools\llama-local\`, and set `"llama_server": "tools/llama-local/llama-server.exe"` in `bin/config.json`; setup then leaves llama-server alone. `GGML_OPENMP=OFF` is needed with the Clang of Visual Studio 2022: llama.cpp's OpenMP needs Clang 20. The CI build uses Visual Studio 2026 and keeps OpenMP on, as llama.cpp's own release does. To publish that build, run the workflow by hand with `llama_build` set.
+Copy `build\bin\*` into a folder of the project other than `tools\llama` (setup replaces that one), say `tools\llama-local\`, and set `"llama_server": "tools/llama-local/llama-server.exe"` in `bin/config.json`; setup then leaves llama-server alone. `GGML_OPENMP=OFF` is needed with the Clang of Visual Studio 2022: llama.cpp's OpenMP needs Clang 20. The CI build uses Visual Studio 2026 and keeps OpenMP on, as llama.cpp's own release does. To publish that build, run the workflow by hand with `llama_build` set, then add the asset's SHA-256 to `LLAMA_BASELINE`.
 
 ## Debugging
 
@@ -160,7 +160,7 @@ The ID `gaogomdebhnfgajgcpahcmdjfmelkhij` is derived from the public key in the 
 
 1. Bump `version` in `extension/manifest.json` and `Cargo.toml`, and record the changes in [CHANGELOG.md](../CHANGELOG.md).
 2. Run `make test`, `make preview` and short `make e2e` runs with `INTO=ru` and `INTO=uk`.
-3. Push the tag `v<version>`: CI publishes the host for Windows, macOS and Linux on that release, which `install-host.ps1` downloads when Rust is not installed. After moving `LLAMA_BUILD` in `fetch.py` to a newer llama.cpp release, run the workflow by hand with `llama_build` set to it, so older ARM processors have a build too.
+3. Push the tag `v<version>`: CI publishes the host for Windows, macOS and Linux on that release, which `install-host.ps1` downloads when Rust is not installed. After moving `LLAMA_BUILD` in `fetch.py` to a newer llama.cpp release, run the workflow by hand with `llama_build` set to it, so older ARM processors have a build too, and add the SHA-256 of the zip it publishes to `LLAMA_BASELINE`: `gh release view llama-<build> --json assets` shows it.
 4. Check by hand in your own browser:
    - a video with subtitles and one without;
    - seeking, pause, stop, dragging;

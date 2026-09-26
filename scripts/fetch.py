@@ -28,7 +28,6 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
-import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -63,9 +62,13 @@ LLAMA = {
 # The same llama.cpp release built for ARM processors the official build
 # can't run on (see official_arm64_build_runs). .github/workflows/ci.yml
 # builds it with llama.cpp's own settings and publishes it on this project's
-# releases under the tag llama-<build>.
+# releases under the tag llama-<build>. Pinned like every other download, so
+# a replaced release asset is refused: after moving LLAMA_BUILD, run that
+# workflow and add the new asset's SHA-256 here.
 REPOSITORY = "secretpray/local-youtube-dub"
-LLAMA_BASELINE = f"llama-{LLAMA_BUILD}-bin-win-cpu-arm64-armv8.2.zip"
+LLAMA_BASELINE = {
+    "b11193": "f93a1b218e55efa8380b3dfd6a23eab87573d5e3db47488dac75ff4dc2fe7bff",
+}
 DENO_VERSION = "v2.9.7"
 DENO = {
     "arm64": ("aarch64", "c4c4ac8bfdaa37814bda5c05fc9cdf2154904e2ef8277673a30bdceaaa649807"),
@@ -173,35 +176,18 @@ def official_arm64_build_runs():
     return all(present(feature) for feature in (43, 66, 68))
 
 
-def released_asset(tag, name):
-    """(url, sha256) of an asset on this project's GitHub release, or None."""
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{REPOSITORY}/releases/tags/{tag}",
-        headers={"Accept": "application/vnd.github+json"})
-    try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            release = json.load(response)
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
-    for asset in release.get("assets", []):
-        if asset["name"] == name and str(asset.get("digest")).startswith("sha256:"):
-            return asset["browser_download_url"], asset["digest"].removeprefix("sha256:")
-    return None
-
-
 def llama_source(arch, gpu, build):
     """(url, sha256) of the llama.cpp build for this machine."""
     if arch == "arm64" and (build == "baseline" or (build is None and not official_arm64_build_runs())):
-        found = released_asset(f"llama-{LLAMA_BUILD}", LLAMA_BASELINE)
-        if found is None:
+        expected = LLAMA_BASELINE.get(LLAMA_BUILD)
+        if expected is None:
             raise LookupError(
-                f"This processor can't run llama.cpp's official ARM64 build, and "
-                f"{LLAMA_BASELINE} is not published on {REPOSITORY} yet. Build llama-server "
-                f"as described in docs/DEVELOPMENT.md and point \"llama_server\" in "
-                f"bin/config.json at it.")
-        return found
+                f"This processor can't run llama.cpp's official ARM64 build, and this "
+                f"project's build of llama.cpp {LLAMA_BUILD} for it is not pinned in "
+                f"scripts/fetch.py. Build llama-server as described in docs/DEVELOPMENT.md "
+                f"and point \"llama_server\" in bin/config.json at it.")
+        return (f"{GITHUB}/{REPOSITORY}/releases/download/llama-{LLAMA_BUILD}/"
+                f"llama-{LLAMA_BUILD}-bin-win-cpu-arm64-armv8.2.zip", expected)
     flavour, expected = LLAMA[f"{arch}-{gpu}" if gpu else arch]
     return (f"{GITHUB}/ggml-org/llama.cpp/releases/download/{LLAMA_BUILD}/"
             f"llama-{LLAMA_BUILD}-bin-{flavour}.zip", expected)
