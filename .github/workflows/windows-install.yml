@@ -1,0 +1,119 @@
+# A clean install on Windows, run by hand from the Actions tab: setup.ps1 and
+# install-host.ps1 from nothing, then the host translates, voices and
+# recognizes speech the way the browser asks it to (scripts/probe-host.py).
+# Everything but the browser. x64 has no other test machine; on ARM64 it
+# covers llama.cpp's official build, which the Parallels VM on an M1 can't
+# run. It downloads about 3 GB, so it doesn't run on every push.
+name: Windows install
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, arch: x64 }
+          - { os: windows-11-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.arch }}
+
+      # The Windows on ARM image does not always carry rustup.
+      - name: Install Rust on Windows ARM64
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+            Invoke-WebRequest https://static.rust-lang.org/rustup/dist/aarch64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe
+            .\rustup-init.exe -y --profile minimal
+            "$env:USERPROFILE\.cargo\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+
+      - name: Machine
+        shell: powershell
+        run: |
+          $cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name.Trim()
+          $system = Get-CimInstance Win32_ComputerSystem
+          "{0}, {1} logical processors, {2:N1} GB" -f $cpu, $system.NumberOfLogicalProcessors, ($system.TotalPhysicalMemory / 1GB)
+
+      # Windows PowerShell 5.1, as a user runs them, not the runner's pwsh.
+      - name: Setup
+        shell: powershell
+        run: |
+          $started = Get-Date
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "Setup took {0:N0} s" -f ((Get-Date) - $started).TotalSeconds
+
+      - name: Install the host
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-host.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Content bin\config.json
+
+      - name: Translate and voice
+        shell: powershell
+        run: |
+          .venv\Scripts\python.exe scripts\probe-host.py --into ru
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python.exe scripts\probe-host.py --into uk --bare-env
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python.exe scripts\probe-host.py --from de --into uk
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # YouTube often refuses downloads to GitHub's addresses, so the required
+      # check recognizes a known recording instead: an English LibriSpeech
+      # sample from the pinned Whisper repository, put in the cache under a
+      # made-up video ID the way a downloaded soundtrack would be.
+      - name: Recognize speech
+        shell: powershell
+        run: |
+          @'
+          import av
+          from huggingface_hub import hf_hub_download
+
+          wav = hf_hub_download("csukuangfj/sherpa-onnx-whisper-small", "test_wavs/0.wav",
+                                revision="8f3c18b358db4d1f2fc1eae49d75cd20989e4309")
+          with av.open(wav) as source, av.open("cache/speechtest0.m4a", "w") as target:
+              stream = target.add_stream("aac", rate=16000)
+              for frame in source.decode(audio=0):
+                  frame.pts = None
+                  for packet in stream.encode(frame):
+                      target.mux(packet)
+              for packet in stream.encode(None):
+                  target.mux(packet)
+          '@ | Set-Content -Encoding ascii speech.py
+          .venv\Scripts\python.exe speech.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv\Scripts\python.exe scripts\probe-host.py --transcribe speechtest0 --from en
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Recognize a YouTube video
+        continue-on-error: true
+        shell: powershell
+        run: |
+          .venv\Scripts\python.exe scripts\probe-host.py --transcribe cMX-u9ltG5Q --start 600
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.arch }}
+          path: cache/*.log
+          if-no-files-found: ignore

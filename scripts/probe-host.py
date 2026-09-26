@@ -89,6 +89,8 @@ def main():
             print(f"         {segment['start']:7.1f}  {segment['text']}")
         host.stdin.close()
         host.wait()
+        if not segments:
+            sys.exit("No speech recognized")
         return
 
     source, into = option("--from", "en"), option("--into", "ru")
@@ -102,14 +104,19 @@ def main():
     for index, text in enumerate(phrases):
         send({"id": index, "type": "translate", "source": text, "language": source,
               "into": into, "targetDuration": 4})
+    failed = 0
     for _ in phrases:
         answer = receive()
         result = answer.get("result") or {}
+        failed += not answer.get("ok")
         detail = (f"{result.get('translated')} ({result.get('duration', 0):.1f} s of audio)"
                   if answer.get("ok") else f"error {answer.get('code')}: {answer.get('error')}")
         print(f"{time.time() - started:5.1f} s  #{answer['id']}: {detail}")
     host.stdin.close()
     host.wait()
+    # CI's Windows install check relies on the exit code.
+    if failed:
+        sys.exit(f"{failed} of {len(phrases)} phrases failed")
 
 
 if __name__ == "__main__":

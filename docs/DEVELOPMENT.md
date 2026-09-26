@@ -128,6 +128,8 @@ robocopy "Z:\path\to\project" C:\Users\me\local-youtube-dub /E /XD .venv target 
 
 `prlctl exec` refuses long command lines; for anything longer than a line, copy a script over and run it with `powershell -File`.
 
+For x64, and for ARM64 processors newer than an M1, run the **Windows install** workflow from the Actions tab: on GitHub's Windows runners it runs `setup.ps1` and `install-host.ps1` from nothing, then `probe-host.py` translation into Russian and Ukrainian and recognition of a known English recording, and tries a YouTube download too (GitHub's addresses are often refused by YouTube, so that step may fail without failing the run). It downloads about 3 GB.
+
 Give the VM 8 GB of memory, as the README asks of any machine. With 6 GB the session in Edge worked, but free memory fell to 0.15 GB and loading the model took over a minute.
 
 ### llama-server for older ARM processors
