@@ -4,6 +4,7 @@
 //
 //   node e2e/run.mjs VIDEO_ID [START_SECONDS] [PHRASES] [--seek=SECONDS] [--into=ru|uk] [--from=auto|en|es|de]
 import { chromium } from "playwright-core";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,20 +25,50 @@ const { createHash } = await import("node:crypto");
 const extensionId = [...createHash("sha256").update(der).digest("hex").slice(0, 32)]
   .map((c) => String.fromCharCode(97 + parseInt(c, 16))).join("");
 
-// Chromium reads per-user native messaging manifests from <user-data-dir>.
-fs.mkdirSync(path.join(profile, "NativeMessagingHosts"), { recursive: true });
-fs.writeFileSync(path.join(profile, "NativeMessagingHosts", "org.local_youtube_dub.host.json"),
+// Playwright's own Chromium for this OS (npx playwright-core install chromium),
+// unless E2E_CHROME names another build that still accepts --load-extension.
+// On Windows ARM64 Playwright only has an x64 Chromium, which runs emulated;
+// the native Edge (E2E_CHROME=...\\msedge.exe) is closer to what people use.
+const executable = process.env.E2E_CHROME || chromium.executablePath();
+
+// Chromium reads per-user native messaging manifests from <user-data-dir>
+// on macOS and Linux. On Windows it reads only the registry, under the
+// browser's own key; that registration is swapped in for the run and the
+// previous one put back afterwards.
+const windows = process.platform === "win32";
+const manifestPath = path.join(profile, "NativeMessagingHosts", "org.local_youtube_dub.host.json");
+fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+fs.writeFileSync(manifestPath,
   JSON.stringify({
     name: "org.local_youtube_dub.host",
     description: "YouTube Translate (e2e)",
-    path: path.join(project, "bin", "local-youtube-dub-host"),
+    path: path.join(project, "bin", windows ? "local-youtube-dub-host.exe" : "local-youtube-dub-host"),
     type: "stdio",
     allowed_origins: [`chrome-extension://${extensionId}/`],
   }, null, 2));
+const browserKey = /msedge\.exe$/i.test(executable) ? "Microsoft\\Edge"
+  : /brave\.exe$/i.test(executable) ? "BraveSoftware\\Brave-Browser"
+  : /Google\\Chrome\\/i.test(executable) ? "Google\\Chrome" : "Chromium";
+const registryKey = `HKCU\\Software\\${browserKey}\\NativeMessagingHosts\\org.local_youtube_dub.host`;
+let previousRegistration = null;
+if (windows) {
+  try {
+    const answer = execFileSync("reg", ["query", registryKey, "/ve"], { encoding: "utf8" });
+    previousRegistration = answer.match(/REG_SZ\s+(.+)/)?.[1].trim() ?? null;
+  } catch { /* no registration before this run */ }
+  execFileSync("reg", ["add", registryKey, "/ve", "/d", manifestPath, "/f"], { stdio: "ignore" });
+}
+function restoreRegistration() {
+  if (!windows) return;
+  if (previousRegistration) {
+    execFileSync("reg", ["add", registryKey, "/ve", "/d", previousRegistration, "/f"], { stdio: "ignore" });
+  } else {
+    execFileSync("reg", ["delete", registryKey, "/f"], { stdio: "ignore" });
+  }
+}
+process.on("exit", restoreRegistration);
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(130));
 
-// Playwright's own Chromium for this OS (npx playwright-core install chromium),
-// unless E2E_CHROME names another build that still accepts --load-extension.
-const executable = process.env.E2E_CHROME || chromium.executablePath();
 const context = await chromium.launchPersistentContext(profile, {
   executablePath: executable,
   headless: false,

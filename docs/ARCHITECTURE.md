@@ -13,7 +13,8 @@ flowchart LR
   end
   BG -- "Native Messaging<br/>stdin/stdout" --> Host["local-youtube-dub-host<br/>(Rust)"]
   Host --> TW["translate_worker.py<br/>Qwen3-4B: MLX or llama.cpp"]
-  Host --> VW["piper_worker.py<br/>one voice per language"]
+  Host -- "HTTP, 127.0.0.1" --> LS["llama-server<br/>Qwen3-4B (Windows)"]
+  Host --> VW["piper_worker.py or<br/>sherpa_voice_worker.py<br/>one voice per language"]
   Host --> ASR["transcribe_video.py<br/>yt-dlp + deno + Whisper"]
   Host -. "translator: ollama" .-> Ollama["Ollama<br/>(optional)"]
 ```
@@ -28,28 +29,58 @@ flowchart LR
 | `extension/background.js` | bridge between the tab and the local app, the toolbar icon, requests to the YouTube player | message contents |
 | `extension/page-hook.js` | keeps the player's subtitle responses, in the page's own world | everything else |
 | `src/main.rs` | the protocol, translation and voice queues, environment checks, on-demand recognition, error codes | the models themselves |
+| `src/llama_server.rs` | starting `llama-server`, waiting for it, talking to it, restarting it | the prompt |
+| `src/process_tree.rs` | a child process and everything it starts, killed as one (process group or Job Object) | what runs in it |
 | `worker/*.py` | one model per process, loaded for the whole session | the browser protocol |
 
-Python is there because MLX, llama.cpp's binding, faster-whisper, Piper and yt-dlp are Python libraries. Rust owns the protocol, the queues and isolation: a hung or crashed worker is restarted and the session carries on.
+Python is there because MLX, llama.cpp's binding, faster-whisper, Piper, sherpa-onnx and yt-dlp are Python libraries. Rust owns the protocol, the queues and isolation: a hung or crashed worker is restarted and the session carries on.
 
 ## Platforms
 
 The same models run on every platform; only the engines differ.
 
-| | Apple Silicon | Linux, Intel Mac |
-|---|---|---|
-| Translation | MLX, `mlx-community/Qwen3-4B-Instruct-2507-4bit` | llama.cpp, `unsloth/Qwen3-4B-Instruct-2507-GGUF` (Q4_K_M) |
-| Recognition | MLX Whisper small | faster-whisper small, int8 on the CPU |
-| Python packages | `requirements-apple-silicon.txt` | `requirements-cpu.txt` |
-| Browser registration | `~/Library/Application Support/<browser>/NativeMessagingHosts` | `~/.config/<browser>/NativeMessagingHosts`; snap browsers are not supported (see below) |
+| | Apple Silicon | Linux, Intel Mac | Windows (x64, ARM64) |
+|---|---|---|---|
+| Translation | MLX, `mlx-community/Qwen3-4B-Instruct-2507-4bit` | llama.cpp through llama-cpp-python, `unsloth/Qwen3-4B-Instruct-2507-GGUF` (Q4_K_M) | the same GGUF in `llama-server`, llama.cpp's release build |
+| Recognition | MLX Whisper small | faster-whisper small, int8 on the CPU | sherpa-onnx: Whisper small int8 ONNX, Silero VAD |
+| Voices | piper-tts | piper-tts | the same Piper voices in sherpa-onnx |
+| Audio decoding | ffmpeg | ffmpeg | PyAV |
+| Python packages | `requirements-apple-silicon.txt` | `requirements-cpu.txt` | `requirements-windows.txt` |
+| Other downloads | — | — | `scripts/fetch.py`: llama-server, Deno, espeak-ng data, Silero VAD |
+| Browser registration | `~/Library/Application Support/<browser>/NativeMessagingHosts` | `~/.config/<browser>/NativeMessagingHosts`; snap browsers are not supported (see below) | the registry, `HKCU\Software\<browser>\NativeMessagingHosts` |
+| Process tree | process group | process group | Job Object |
 
 **Snap browsers.** A snap browser starts the host inside its sandbox, where `/usr` is the snap's own and the project's Python environment (a venv pointing at the system Python) cannot run. The host recognizes this from `SNAP_NAME` and answers `sandboxed_browser`, and `install-host.sh` no longer registers snap Chromium.
 
 **Threads.** The browser decodes the video on the same CPU, so llama.cpp uses two threads fewer than there are cores (at least two; `DUB_LLAMA_THREADS` overrides). On 4 cores with 2 kept busy, 2 threads prepared a phrase in about 3.5 s and 4 threads in about 5.5 s.
 
-The host picks the engines at build time (`cfg!(target_os, target_arch)`), and `translator` and `asr` in `bin/config.json` override them. `setup.sh` installs the matching packages and models.
+The host picks the engines at build time (`cfg!(target_os, target_arch)`), and `translator`, `asr` and `voice_engine` in `bin/config.json` override them. `setup.sh` and `setup.ps1` install the matching packages and models.
 
 **Memory on Linux.** On ARM, llama.cpp repacks the weights into a CPU-friendly copy by default: 2.8 GB of anonymous memory the kernel cannot reclaim. On a 5 GB machine that got the host OOM-killed, and since the host runs in the browser's systemd scope, systemd stopped the browser too. `translate_worker.py` therefore turns repacking off (`use_extra_bufts = false`), leaving about 0.4 GB anonymous plus the mapped model file, which is reclaimable page cache. Before recognizing speech the extension also asks the host not to warm the translation model up, so Whisper and the translation model never load at the same time.
+
+## Windows
+
+Nothing there is compiled on the user's machine, which rules out the Linux engines: llama-cpp-python only ships source for Windows, and neither it nor faster-whisper (CTranslate2) nor piper-tts has a wheel for Windows on ARM. What does exist for both architectures is llama.cpp's own release build, and sherpa-onnx, which runs Whisper and the same Piper voices on onnxruntime.
+
+**`llama-server` as a sidecar.** The translator thread starts `tools/llama/llama-server` on a free port of 127.0.0.1, waits for `/health`, and posts each phrase to `/v1/chat/completions` (`src/llama_server.rs`). The server is started with one slot, a 2048-token context and no prompt cache in RAM: its defaults (automatic slots, the model's full context, an 8 GB prompt cache) are sized for a server, not for a laptop playing video. It allows requests from any web origin, so it gets a random API key per start, passed in its environment: without one any open web page could use it by guessing the port. A server that died, hung past 40 s or answered garbage is dropped, which kills it, and the next phrase starts another; its log is `cache/llama-server.log`, and the end of it goes into the error.
+
+**Which llama.cpp build.** llama.cpp compiles its Windows ARM64 release for armv8.7-a, which takes int8 matrix multiply and bfloat16 for granted. Snapdragon X and Apple M2 or later have them; Apple M1 under Parallels and the Snapdragon 8cx family don't, and there the server dies loading the model with `0xC000001D`, an illegal instruction. `fetch.py` asks Windows (`IsProcessorFeaturePresent`) and, on such a processor, takes the same llama.cpp release built for armv8.2-a with dot product and fp16, which the project's CI builds with llama.cpp's own settings (`llama-arm64` in `.github/workflows/ci.yml`). The host names the cause when a build doesn't fit the processor anyway.
+
+**Voices in sherpa-onnx.** sherpa-onnx needs metadata inside the ONNX file and a `tokens.txt`, which a Piper voice doesn't ship. `sherpa_voice_worker.py` derives both from the voice's `.onnx.json` on first use, into `cache/sherpa-voices/`, so `bin/config.json` names the same voice files on every platform. Voices trained on espeak phonemes use espeak-ng's data from `voices/espeak-ng-data`. The Ukrainian `ukrainian_tts` is trained on letters: it goes through sherpa's character frontend, which encodes text exactly as Piper does (BOS, a pad after every symbol, EOS), after the text is split into NFD code points, as Piper splits it. Output is peak-normalised as Piper's is. Both engines were compared by recognizing their output back with Whisper: the same words in both.
+
+**Recognition in sherpa-onnx.** Whisper there reads at most 30 s at a time, so Silero VAD first cuts the section into stretches of speech of up to 15 s, and Whisper's own segment timestamps split each stretch into sentences, the size of faster-whisper's segments. With the language on `auto`, Whisper guesses per stretch; the language of most of the speech wins, and the stretches guessed otherwise are decoded again in it. The audio is decoded by PyAV, so there is no ffmpeg to install.
+
+**Process model.** Each worker and the server runs in its own Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (`src/process_tree.rs`). The job's only handle belongs to the host, so the tree dies with the host however the host ends: Chrome ends a host with `TerminateProcess`, which children never hear about, and a translation server left behind would hold gigabytes until the next reboot. Verified by killing the host that way mid-session and mid-recognition: `llama-server`, the voices and the recognition process were all gone. A child is created suspended, put in its job, and only then resumed, so nothing it starts can escape the job. Children get `CREATE_NO_WINDOW`, so no console window flashes.
+
+Three more things the host does for Windows, each after it broke without it:
+
+- **UTF-8 pipes.** Children get `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`: Python writes pipes in the ANSI code page, which has no Cyrillic in most locales.
+- **No shared stdin.** The recognition process gets an empty stdin instead of the host's. The host's main thread sits in a synchronous read of the browser's pipe, Windows serialises every operation on that handle, and Python's start-up check of its stdin waited for the browser's next message: recognition hung until a phrase request happened to arrive.
+- **Paths.** Python is `.venv\Scripts\python.exe`, `PATH` is split and joined with the platform's separator, and `tools\deno` goes first on it, which is where yt-dlp finds Deno.
+
+**Registration.** On Windows Chromium browsers read native messaging manifests only from the registry: `HKCU\Software\<browser>\NativeMessagingHosts\org.local_youtube_dub.host`, whose default value is the manifest's path. `install-host.ps1` writes the manifest to `bin\` and the value for Chrome, Edge, Brave and Chromium.
+
+**First load.** Windows Defender reads a new program or library in full the first time it is loaded: PyAV's FFmpeg libraries took 118 s to import once and 0.2 s after that, and the first recognition waited for it. `setup.ps1` loads the Python engines, Deno and llama-server once, so that happens during setup.
 
 ## Languages
 
@@ -63,7 +94,7 @@ The three are independent: a German video can be dubbed into Ukrainian with a Sp
 
 **Translation prompt.** It is written in English, with the source and target languages passed as parameters. If the answer contains letters of the other target language (`ы э ъ ё` in Ukrainian, `і ї є ґ` in Russian) or Chinese characters, the translation is retried once with a strict instruction. If the retry fails too, the phrase is skipped: a voice for one language must not read text in another.
 
-**Voices.** Each dubbing language has its own Piper voice and its own host process (`voices.ru`, `voices.uk`). The Ukrainian `ukrainian_tts` model is trained on letters rather than espeak phonemes. It silently drops capital letters, digits and Latin script, so `piper_worker.py` first turns the text into lower-case Cyrillic and spells numbers out (`num2words`).
+**Voices.** Each dubbing language has its own Piper voice and its own host process (`voices.ru`, `voices.uk`). The Ukrainian `ukrainian_tts` model is trained on letters rather than espeak phonemes. It silently drops capital letters, digits and Latin script, so the voice workers first turn the text into lower-case Cyrillic and spell numbers out (`num2words`, in `voice_common.py`).
 
 ## One phrase end to end
 
@@ -93,7 +124,7 @@ Each message is JSON preceded by a 4-byte little-endian length. The browser may 
 
 | Request | Fields | Answer |
 |---|---|---|
-| `status` | `into` | environment check for that dubbing language; on success the host starts loading the models |
+| `status` | `into`, `warm` | environment check for that dubbing language; unless `warm` is `false`, the host loads the models and answers once they are loaded |
 | `translate` | `id`, `source`, `language`, `into`, `contextBefore`, `contextAfter`, `targetDuration` | `{translated, wavBase64, duration}` |
 | `transcribe` | `id`, `videoId`, `startSeconds`, `windowSeconds`, `language` | `{language, segments[], windowStart, windowEnd}` |
 
@@ -117,7 +148,7 @@ An error without an `id` means the connection is gone, and stops the session. An
 | Code | Raised by | Effect |
 |---|---|---|
 | `host_missing`, `host_exited`, `connection_lost` | `background.js`: Chrome can't find the host, the host crashed, the port closed | session stopped |
-| `python_missing`, `translation_model_missing`, `voice_missing`, `config_invalid`, `ollama_unreachable`, `ollama_model_missing` | the `status` check | session doesn't start |
+| `python_missing`, `translator_missing`, `translation_model_missing`, `voice_missing`, `config_invalid`, `ollama_unreachable`, `ollama_model_missing` | the `status` check | session doesn't start |
 | `translation_failed`, `voice_failed`, `voice_empty`, `worker_failed`, `worker_timeout` | a single phrase | phrase skipped |
 | `ffmpeg_missing`, `js_runtime_missing`, `youtube_blocked`, `download_failed`, `language_unsupported`, `recognition_failed`, `cancelled` | recognition of a section | first section: session doesn't start; later sections: one retry after 10 s, then the section is skipped |
 | `bad_request`, `internal` | an invalid request or an internal failure | depends on the request |
@@ -182,10 +213,10 @@ The panel is never taller than the window; anything beyond that scrolls inside t
 2. **The transcript panel on the page.** Used if no track could be loaded.
 3. **Speech recognition.** Used when there are no suitable subtitles at all: no English, Spanish or German track, or no track could be loaded.
    - the host downloads the audio track (`yt-dlp`);
-   - cuts a 180 s section (`ffmpeg`);
-   - recognizes it with Whisper small: MLX Whisper on Apple Silicon, faster-whisper elsewhere.
+   - cuts a 180 s section (`ffmpeg`; PyAV on Windows);
+   - recognizes it with Whisper small: MLX Whisper on Apple Silicon, sherpa-onnx on Windows, faster-whisper elsewhere.
 
-   To get the audio URL, yt-dlp has to run YouTube's JavaScript, and for that it needs Deno. Deno is installed into `.venv` with the Python packages, and the host puts `.venv/bin` first on `PATH`. Without Deno YouTube answers `403 Forbidden`.
+   To get the audio URL, yt-dlp has to run YouTube's JavaScript, and for that it needs Deno. On macOS and Linux Deno is installed into `.venv` with the Python packages, on Windows into `tools\deno` from its release, and the host puts that folder first on `PATH`. Without Deno YouTube answers `403 Forbidden`.
 
 Lines without letters ("♪", "…") and labels such as `[Music]`, `[Musik]`, `[Оплески]` are never voiced.
 
@@ -195,9 +226,12 @@ Everything lives inside the project folder:
 
 | Path | What | Size | Cleanup |
 |---|---|---|---|
-| `.venv/` | Python environment with Deno | ~1.6 GB | `make setup` recreates it |
-| `cache/huggingface/` | translation and recognition models | ~2.6 GB | manual |
-| `voices/` | Piper voices | 60–80 MB per voice | manual |
+| `.venv/` | Python environment (with Deno on macOS and Linux) | ~1.6 GB | `make setup` recreates it |
+| `tools/` | Windows: `llama/` (llama-server), `deno/` | ~0.1 GB | `setup.ps1` recreates it |
+| `cache/huggingface/` | translation and recognition models | ~2.6 GB (Windows ~2.9 GB) | manual |
+| `voices/` | Piper voices; on Windows also `espeak-ng-data/` | 60–80 MB per voice | manual |
+| `cache/sherpa-voices/`, `cache/models/` | Windows: voices converted for sherpa-onnx, Silero VAD | 60–80 MB per voice | redone when missing |
+| `cache/llama-server.log` | the last llama-server's log | small | overwritten on every start |
 | `cache/<id>.m4a`, `.webm` | downloaded audio of a video | ~1 MB per minute | oldest removed beyond `DUB_AUDIO_CACHE_MB` (1024) |
 | `cache/<id>.asr-<start>-<window>-<lang>.json` | transcript of a section | a few KB | kept |
 | `bin/config.json` | host settings | — | `make install` fills in defaults and migrates old keys |
@@ -210,11 +244,14 @@ The browser (`chrome.storage.local`) keeps only the panel's settings: languages,
 - **Which pages can talk to the extension.** The background page only accepts ports from `https://www.youtube.com/` tabs. The extension has no `externally_connectable`.
 - **Input validation.** The host checks everything it receives: a video ID is exactly 11 characters of `[A-Za-z0-9_-]`, phrase and context lengths are capped, languages must be in `SOURCES` and `TARGETS`.
 - **The Ollama URL** may only point at `127.0.0.1` or `localhost`.
-- **Network.** The translation model is loaded with `HF_HUB_OFFLINE=1`. Only `yt-dlp` (YouTube) and `make setup` (models) go online.
+- **Network.** The translation model is loaded with `HF_HUB_OFFLINE=1`, and `llama-server` is started with `--offline`. Only `yt-dlp` (YouTube) and setup (models) go online.
+- **Local servers.** `llama-server` listens on 127.0.0.1 only and requires a key generated for each start (see [Windows](#windows)).
+- **Downloads on Windows.** `fetch.py` checks every file against a SHA-256 pinned in the script: llama.cpp and Deno releases, espeak-ng data, Silero VAD, the models at pinned revisions, the default voices. The project's own builds (the host, llama-server for older ARM processors) are checked against the SHA-256 GitHub records for the release asset, which proves the file is the one the workflow uploaded, not who ran the workflow.
 
 ## Reliability
 
-- **Hung worker.** A watchdog on every Python worker call: 120 s to load a model, 40 s to answer. A hung worker is killed together with its process group, the phrase gets `worker_timeout`, and the next phrase starts the worker again. Cancelling recognition also kills the group, yt-dlp and ffmpeg included.
+- **Hung worker.** A watchdog on every Python worker call: 120 s to load a model, 40 s to answer. A hung worker is killed together with its process tree, the phrase gets `worker_timeout`, and the next phrase starts the worker again. Cancelling recognition also kills the tree, yt-dlp and ffmpeg included. `llama-server` has the same limits, through its HTTP timeouts.
+- **Warm-up before the clock starts.** The answer to `status` waits until the translation model and the voice are loaded. The extension starts each phrase's 45 s clock when it sends the phrase, and on a slow machine a model still loading used to make the first phrases miss it.
 - **Lost answer.** A 45 s timer in the extension: a phrase without an answer is skipped and its slot in the queue is freed.
 - **Environment check.** `status` checks Python, the translation model and the voice for the chosen language, and reports whether `ffmpeg` and Deno are present.
-- **PATH.** The browser starts the host with a bare `PATH`. The host puts `.venv/bin` first and adds `/opt/homebrew/bin` and `/usr/local/bin`.
+- **PATH.** The browser starts the host with a bare `PATH`. The host puts `.venv/bin` (Windows: `.venv\Scripts` and `tools\deno`) first and, on macOS and Linux, adds `/opt/homebrew/bin` and `/usr/local/bin`.

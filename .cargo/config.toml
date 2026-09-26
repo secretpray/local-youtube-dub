@@ -1,0 +1,4 @@
+# The C runtime linked into the host on Windows, so the executable runs on a
+# machine without the Visual C++ Redistributable, which Windows does not ship.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

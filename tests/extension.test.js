@@ -166,10 +166,25 @@ test("interface language follows the browser, with English as the fallback", () 
   assert.equal(i18n.browserLocale(["uk-UA", "en"]), "uk");
   assert.equal(i18n.browserLocale(["de-DE", "es-MX"]), "es");
   assert.equal(i18n.browserLocale(["fr-FR"]), "en");
-  const t = i18n.translator("uk");
+  const t = i18n.translator("uk", "linux");
   assert.equal(t("error.voice_missing", { target: "uk" }), "Немає голосу для мови «Українська». Виконайте make setup");
   assert.equal(t("error.not_a_code", {}, "raw detail"), "raw detail");
   assert.equal(i18n.translator("es")("unit.seconds", { value: 3 }), "3 s");
+});
+
+test("messages name the commands of the viewer's own system", () => {
+  assert.equal(i18n.currentPlatform({ userAgentData: { platform: "Windows" } }), "windows");
+  assert.equal(i18n.currentPlatform({ platform: "MacIntel" }), "mac");
+  assert.equal(i18n.currentPlatform({ platform: "Linux x86_64" }), "linux");
+  assert.equal(i18n.translator("en", "windows")("error.host_missing"),
+    "The local app is not installed. Run scripts\\install-host.ps1 and restart the browser");
+  assert.equal(i18n.translator("ru", "mac")("error.ffmpeg_missing"),
+    "Не найден ffmpeg. Установите: brew install ffmpeg");
+  assert.equal(i18n.translator("es", "windows")("error.translator_missing", { engine: "llama-server" }),
+    "El motor de traducción (llama-server) no está instalado. Ejecuta scripts\\setup.ps1");
+  for (const commands of Object.values(i18n.COMMANDS)) {
+    assert.deepEqual(Object.keys(commands).sort(), ["ffmpeg", "install", "setup"]);
+  }
 });
 
 test("large answers are joined only when every part has arrived", () => {
