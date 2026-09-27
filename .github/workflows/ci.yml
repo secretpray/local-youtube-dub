@@ -121,13 +121,16 @@ jobs:
              "dist/local-youtube-dub-host-$version-${{ matrix.target }}$suffix"
 
       # GitHub records each asset's SHA-256, which install-host.ps1 checks.
+      # The release notes are this version's section of CHANGELOG.md.
       - name: Publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          awk -v heading="## ${GITHUB_REF_NAME#v} " \
+            'index($0, heading) == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > notes.md
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
-            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md." || true
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md || true
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
 
   # llama.cpp's own Windows ARM64 release step, with one change: armv8.2-a

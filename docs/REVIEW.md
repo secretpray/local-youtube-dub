@@ -1,6 +1,6 @@
 # Critical review
 
-Date: 25 September 2026, version 0.3.0; Linux and Windows sections updated 26 September 2026.
+Date: 25 September 2026, version 0.3.0; Linux and Windows sections updated 26 September 2026, version 0.4.0.
 
 **What was checked:**
 
@@ -158,6 +158,19 @@ Measured on Windows 11 Pro ARM64 in Parallels on the M1 Pro: 4 cores, 6 GB, with
 
 Per phrase this is about twice the Linux VM on the same Mac (1.3 s), with the same model, threads and settings. Not established why; the candidates, unmeasured: the build here had no OpenMP (Visual Studio 2022's Clang is too old for llama.cpp's, while CI's build keeps it), the Parallels VM against UTM, and Clang against GCC. On a Snapdragon X, the processor most Windows on ARM machines have, the official build with int8 matrix multiply and 8–10 threads applies instead; that could not be measured here.
 
+On GitHub's Windows runners, by the **Windows install** workflow (`.github/workflows/windows-install.yml`, [run of 26 September](https://github.com/secretpray/local-youtube-dub/actions/runs/36256281777)): everything installed from nothing, then the host driven by `probe-host.py`, no browser. Both runners have 4 logical processors and 16 GB; the py launcher picked Python 3.14 on both, so 3.14 is covered too.
+
+| What | x64 (AMD EPYC 7763) | ARM64 (Cobalt 100) |
+|---|---|---|
+| llama.cpp build | official x64 | official ARM64: the processor has int8 matrix multiply, and `fetch.py` chose it |
+| `setup.ps1` from nothing | 104 s | 157 s |
+| `install-host.ps1`, host built with cargo | 36 s | 39 s |
+| Each phrase after the first, 2 threads | ≈ 3.4 s | ≈ 4.8 s |
+| Recognizing a 7 s English recording | 5.0 s | 4.4 s |
+| A YouTube download | refused: "Sign in to confirm you're not a bot", reported as `youtube_blocked` | the same |
+
+A phrase is slower here than in the Parallels VM (≈ 2.9 s): a shared cloud machine, not a laptop core.
+
 **Found and fixed while porting**, each verified in the VM:
 
 | Problem | Fix |
@@ -175,9 +188,9 @@ Verified besides: killing the host with `TerminateProcess`, as Chrome does, took
 
 **Open on Windows:**
 
-- **x64 was not run.** Same code, packages and pinned builds; CI compiles it and runs the tests on Windows x64, nothing more.
+- **x64 was not run in a browser.** Installation, translation, voice and recognition were run on GitHub's x64 runner (above); a session in a browser on an x64 PC was not.
 - **The host is not released yet.** Until the first tagged release, `install-host.ps1` needs Rust. The ARM64 llama-server for older processors is published (`llama-b11193`, built by the `llama-arm64` job) and was checked on the VM: setup downloaded it against its pinned SHA-256, and translation into Russian and Ukrainian ran on it.
-- **Chrome was not tried with the extension.** Google Chrome no longer loads an unpacked extension from the command line, so it takes the manual steps from the README; Edge, the same Chromium, was run end to end. Nobody listened to the sound on Windows: the checks are the voice's output recognized back, and the session journal.
+- **Chrome was tried by hand only.** Google Chrome no longer loads an unpacked extension from the command line, so the automated session runs in Edge. In Chrome on the VM, by hand and with sound, a video with subtitles and one without were dubbed; with recognition the first phrase comes only after the whole first 180 s section is recognized, over a minute on the VM.
 - **Unsigned programs.** Neither the host nor the downloaded engines are code-signed (code signing is out of scope). Files the scripts create carry no mark of the web, so SmartScreen doesn't stop them.
 - **Recognition of an unsupported language** decodes the whole section before saying so (60 s on the VM); the language could be decided from the first stretches of speech.
 

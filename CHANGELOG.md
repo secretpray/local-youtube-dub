@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 26 September 2026
 
 ### Added
 
-- **Windows support**, x64 and ARM64, with nothing compiled on the user's machine: `scripts\setup.ps1` and `scripts\install-host.ps1` (Windows PowerShell 5.1, `-ExecutionPolicy Bypass` for the one run). Verified on Windows 11 ARM64 in Parallels; x64 is built by CI only.
+- **Windows support**, x64 and ARM64, with nothing compiled on the user's machine: `scripts\setup.ps1` and `scripts\install-host.ps1` (Windows PowerShell 5.1, `-ExecutionPolicy Bypass` for the one run). Verified on Windows 11 ARM64 in Parallels, in Edge and Chrome, and without a browser on GitHub's x64 and ARM64 runners.
   - Translation runs in **`llama-server`**, llama.cpp's official release build, as a sidecar the host starts on a free loopback port with a per-session API key, and restarts if it dies. New translator backend `llama-server`, usable on macOS and Linux too.
   - Recognition and voices run on **sherpa-onnx**: Whisper small (int8 ONNX) with Silero VAD, and the same Piper voices, converted for sherpa on first use. Audio is decoded with PyAV, so Windows needs no ffmpeg.
   - `scripts/fetch.py` downloads llama-server, Deno, espeak-ng data, voices and models, each checked against a pinned SHA-256. On ARM64 processors without int8 matrix multiply (Apple M1 under Parallels, Snapdragon 8cx), where llama.cpp's official ARM64 build dies with an illegal instruction, it takes a baseline build published by this project's CI instead.
