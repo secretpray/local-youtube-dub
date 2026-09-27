@@ -181,8 +181,10 @@ jobs:
           Compress-Archive -Path build\bin\Release\* -DestinationPath $zip
           $tag = "llama-$env:BUILD"
           gh release view $tag --repo $env:REPOSITORY *> $null
+          # --latest=false: otherwise this becomes the repository's "Latest"
+          # release, shown in place of the project's own.
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --repo $env:REPOSITORY --title "llama.cpp $env:BUILD for older ARM64 processors" `
+            gh release create $tag --repo $env:REPOSITORY --latest=false --title "llama.cpp $env:BUILD for older ARM64 processors" `
               --notes "llama.cpp $env:BUILD built for armv8.2-a+dotprod+fp16 by this project's CI. Downloaded by scripts/fetch.py when the processor can't run the official build."
           }
           gh release upload $tag $zip --repo $env:REPOSITORY --clobber
